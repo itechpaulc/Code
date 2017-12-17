@@ -1,0 +1,8 @@
+Project Application Program for the D5200 programmer, for the D9000 panel
+Written in Motorola ASM
+For the Z80 
+Date 1996
+
+Legacy code for demonstartion purposes only.
+Support files such as headers/linkers/library files etc., are not included.
+Compilers, assemblers may no longer be available.
