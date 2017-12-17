@@ -1,0 +1,8 @@
+Project D229 Relay Output Expansion Module
+Written in Motorola ASM
+For the HC6805
+Date 1996
+
+Legacy code for demonstartion purposes only.
+Support files such as headers/linkers/library files etc., are not included.
+Compilers, assemblers may no longer be available.
