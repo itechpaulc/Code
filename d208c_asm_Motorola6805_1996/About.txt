@@ -1,4 +1,4 @@
-Project D208C Relay Output Module
+Project D208C Input Point Expansion Module
 Written in Motorola ASM
 For the HC6805
 Date 1996
