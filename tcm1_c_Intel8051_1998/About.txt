@@ -1,0 +1,8 @@
+Project TCM1 Timer Control Module, Controller Board for spectormeter instrument
+Written in 8051 C Keil
+For the INTEL 8051 chipset
+Date 1998
+
+Legacy code for demonstartion purposes only.
+Support files such as headers/linkers/library files etc., are not included.
+Compilers, assemblers may no longer be available.
