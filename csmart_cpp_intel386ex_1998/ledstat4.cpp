@@ -1,0 +1,178 @@
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+//
+//    $Header:      $
+//    $Log:         $
+//
+//
+//    Author : Paul Calinawan        December 1997
+//
+//
+/////////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////////
+//
+//    NOTE:
+//
+//    This document contains CONFIDENTIAL and proprietary information
+//    which is the property of Graphics Microsystems, Inc. It may not
+//    be copied or transmitted in whole or in part by any means to any
+//    media without Graphics Microsystems Inc's prior written permission.
+//
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+#include "80386ex.h"
+
+#include "ledstat.h"
+
+
+
+
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+//
+//  HeadCmdCommLedStatusMachine
+//
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+//
+// HeadCmdCommLedStatusMachine - private helper functions
+//
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+
+void
+HeadCmdCommLedStatusMachine::LedOn(void)
+{
+    p3Status = GetIO3Latch();           // Read Port 3
+
+    p3Status |= HCC_STATUS_LED_PORT;    // Set LED Port
+
+    SetIO3Latch(p3Status);              // Write to Port
+}
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void
+HeadCmdCommLedStatusMachine::LedOff(void)
+{
+    p3Status = GetIO3Latch();           // Read Port 3
+
+    p3Status &= ~HCC_STATUS_LED_PORT;   // Clear LED Port
+
+    SetIO3Latch(p3Status);              // Write to Port
+}
+
+
+//////////////////////////////////////////////////
+//
+// HeadCmdCommLedStatusMachine - RESPONSE ENTRIES
+//
+//////////////////////////////////////////////////
+
+//////////////////////////////////////////////////
+//
+// State Transition Matrices
+//
+//////////////////////////////////////////////////
+
+STATE_TRANSITION_MATRIX(HeadCmdCommLedStatusMachine, _HCC_SLM_IDLE)
+    EV_HANDLER(TimeOut, HCC_SLM_h1)
+STATE_TRANSITION_MATRIX_END;
+
+STATE_TRANSITION_MATRIX(HeadCmdCommLedStatusMachine, _HCC_SLM_ON)
+    EV_HANDLER(TimeOut, HCC_SLM_h1)
+STATE_TRANSITION_MATRIX_END;
+
+STATE_TRANSITION_MATRIX(HeadCmdCommLedStatusMachine, _HCC_SLM_OFF)
+    EV_HANDLER(TimeOut, HCC_SLM_h2)
+STATE_TRANSITION_MATRIX_END;
+
+
+//////////////////////////////////////////////////
+//
+// Matrix Table
+//
+//////////////////////////////////////////////////
+
+DEFINE_RESPONSE_TABLE_ENTRY(HeadCmdCommLedStatusMachine)
+    STATE_MATRIX_ENTRY(_HCC_SLM_IDLE),
+    STATE_MATRIX_ENTRY(_HCC_SLM_ON),
+    STATE_MATRIX_ENTRY(_HCC_SLM_OFF)
+RESPONSE_TABLE_END;
+
+
+//////////////////////////////////////////////////
+//
+// Static Member Definitions
+//
+//////////////////////////////////////////////////
+
+BYTE    HeadCmdCommLedStatusMachine::p3Status;
+
+
+//////////////////////////////////////////////////
+//
+// HeadCmdCommLedStatusMachine - Constructors, Destructors
+//
+//////////////////////////////////////////////////
+
+HeadCmdCommLedStatusMachine::HeadCmdCommLedStatusMachine(BYTE sMsysID)
+    :StateMachine(sMsysID)
+{
+    LedOff();
+
+    ASSIGN_RESPONSE_TABLE();
+
+    SetCurrState(HCC_SLM_IDLE);
+}
+
+HeadCmdCommLedStatusMachine::~HeadCmdCommLedStatusMachine(void) { }
+
+
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+//
+// HeadCmdCommLedStatusMachine - private EXIT PROCEDURES
+//
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+
+WORD
+HeadCmdCommLedStatusMachine::HCC_SLM_h1(void)
+{
+        LedOff();
+
+        StartTimer(MSEC(50));
+
+    return  HCC_SLM_OFF;
+}
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+HeadCmdCommLedStatusMachine::HCC_SLM_h2(void)
+{
+        LedOn();
+
+        StartTimer(MSEC(50));
+
+    return  HCC_SLM_ON;
+}

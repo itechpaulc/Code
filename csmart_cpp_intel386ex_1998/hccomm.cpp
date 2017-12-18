@@ -1,0 +1,237 @@
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+//
+//    $Header:      $
+//    $Log:         $
+//
+//
+//    Author : Paul Calinawan        January 1998
+//
+//
+/////////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////////
+//
+//    NOTE:
+//
+//    This document contains CONFIDENTIAL and proprietary information
+//    which is the property of Graphics Microsystems, Inc. It may not
+//    be copied or transmitted in whole or in part by any means to any
+//    media without Graphics Microsystems Inc's prior written permission.
+//
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+#include "80386ex.h"
+
+#include "hccomm.h"
+
+
+
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+//
+//  HeadCommandCommMachine
+//
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+//
+//  HeadMachinesManager
+//
+//      - public interface functions :
+//
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+
+
+void
+HeadCommandCommMachine::SetTransmitBuffer(BYTE *txData, BYTE length)
+{
+    txChecksum = 0x00;
+
+    txLength = length;
+
+    for(int l=0; l<txLength; l++)
+    {
+        hccTxBuffer[l] = (*txData);
+
+        txChecksum += hccTxBuffer[l];
+
+        txData++;
+    }
+
+    hccTxBuffer[l] = txChecksum;
+}
+
+BYTE    *
+HeadCommandCommMachine::GetReceiveBuffer(void)
+{
+    return hccRxBuffer;
+}
+
+
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+//
+// HeadCommandCommMachine - private helper functions
+//
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+
+
+
+
+//////////////////////////////////////////////////
+//
+// HeadCommandCommMachine - RESPONSE ENTRIES
+//
+//////////////////////////////////////////////////
+
+//////////////////////////////////////////////////
+//
+// State Transition Matrices
+//
+//////////////////////////////////////////////////
+
+STATE_TRANSITION_MATRIX(HeadCommandCommMachine, _HCC_IDLE)
+    EV_HANDLER(SendProbeHeadCommand, HCC_h1),
+    EV_HANDLER(StarColorBarScanMode, HCC_h4)
+STATE_TRANSITION_MATRIX_END;
+
+STATE_TRANSITION_MATRIX(HeadCommandCommMachine, _HCC_SENDING_PACKET)
+    EV_HANDLER(PacketSent, HCC_h2)
+STATE_TRANSITION_MATRIX_END;
+
+STATE_TRANSITION_MATRIX(HeadCommandCommMachine, _HCC_WAITING_FOR_REPLY)
+    EV_HANDLER(PacketReceived, HCC_h3)
+STATE_TRANSITION_MATRIX_END;
+
+STATE_TRANSITION_MATRIX(HeadCommandCommMachine, _HCC_IN_COLOR_BAR_MODE)
+    EV_HANDLER(EndColorBarScanMode, HCC_h5)
+STATE_TRANSITION_MATRIX_END;
+
+
+
+
+//////////////////////////////////////////////////
+//
+// Matrix Table
+//
+//////////////////////////////////////////////////
+
+DEFINE_RESPONSE_TABLE_ENTRY(HeadCommandCommMachine)
+    STATE_MATRIX_ENTRY(_HCC_IDLE),
+    STATE_MATRIX_ENTRY(_HCC_SENDING_PACKET),
+    STATE_MATRIX_ENTRY(_HCC_WAITING_FOR_REPLY),
+    STATE_MATRIX_ENTRY(_HCC_IN_COLOR_BAR_MODE)
+RESPONSE_TABLE_END;
+
+
+//////////////////////////////////////////////////
+//
+// Static Member Definitions
+//
+//////////////////////////////////////////////////
+
+BYTE    HeadCommandCommMachine::hccTxBuffer[MAX_HEAD_COMM_PACKET_LEN];
+BYTE    HeadCommandCommMachine::hccRxBuffer[MAX_HEAD_COMM_PACKET_LEN];
+
+BYTE    HeadCommandCommMachine::txLength = 0x00;
+
+BYTE    HeadCommandCommMachine::txChecksum = 0x00;
+
+WORD    HeadCommandCommMachine::errorCount = 0;
+
+
+
+//////////////////////////////////////////////////
+//
+// HeadCommandCommMachine - Constructors, Destructors
+//
+//////////////////////////////////////////////////
+
+HeadCommandCommMachine::HeadCommandCommMachine(BYTE sMsysID)
+    :StateMachine(sMsysID)
+{
+    ASSIGN_RESPONSE_TABLE();
+
+    SetCurrState(HCC_IDLE);
+}
+
+HeadCommandCommMachine::~HeadCommandCommMachine(void) { }
+
+
+WORD    HeadCommandCommMachine::GetErrorCount(void) {
+
+    return  HeadCommandCommMachine::errorCount;
+}
+
+
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+//
+// HeadCommandCommMachine - private EXIT PROCEDURES
+//
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+
+WORD
+HeadCommandCommMachine::HCC_h1(void)
+{
+    return  HCC_SENDING_PACKET;
+}
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+HeadCommandCommMachine::HCC_h2(void)
+{
+    return  HCC_WAITING_FOR_REPLY;
+}
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+HeadCommandCommMachine::HCC_h3(void)
+{
+    return  HCC_IDLE;
+}
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+HeadCommandCommMachine::HCC_h4(void)
+{
+    return  HCC_IN_COLOR_BAR_MODE;
+}
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+HeadCommandCommMachine::HCC_h5(void)
+{
+    return  HCC_IDLE;
+}
+

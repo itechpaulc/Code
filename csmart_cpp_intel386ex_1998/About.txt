@@ -1,0 +1,8 @@
+Color Smart photo spectrometer instrumentation, driver board 
+Written in CPP, Microsoft as Cross compliler
+For the INTEL 386 EX Embedded microcontroller
+Date 1998
+
+Legacy code for demonstartion purposes only.
+Support files such as headers/linkers/library files etc., are not included.
+Compilers, assemblers may no longer be available.
