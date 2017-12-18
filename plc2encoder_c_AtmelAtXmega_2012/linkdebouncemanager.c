@@ -1,0 +1,260 @@
+
+
+
+
+//
+//
+//
+//  Author :    Paul Calinawan
+//
+//  Date:       Jan 14 , 2012
+//
+//  Copyrights: Imaging Technologies Inc.
+//
+//  Product:    ITECH PLC2
+//  
+//  Subsystem:  Absolute Encoder Monitor Board
+//
+//  -------------------------------------------
+//
+//
+//      CONFIDENTIAL DOCUMENT
+//
+//      Property of Imaging Technologies Inc.
+//
+//
+
+
+
+////////////////////////////////////////////////////////////////////
+
+
+////////////////////////////////////////////////////////////////////
+
+#include "itechsys.h"
+
+
+////////////////////////////////////////////////////////////////////
+
+
+#include "kernel.h"
+
+
+////////////////////////////////////////////////////////////////////
+
+#include <avr/io.h>
+
+#include "linkdebouncemanager.h"
+
+
+////////////////////////////////////////////////////////////////////
+//
+//  Local StateMachine Variables
+//
+////////////////////////////////////////////////////////////////////
+
+#define		MAX_DEBOUNCE			(3)
+
+U8			debounceCounter;
+
+
+
+///////////////////////////////////////////////////////////////////
+//
+// Function prototypes
+//
+////////////////////////////////////////////////////////////////////
+
+
+////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////
+
+BOOL IsLinkButtonOff(void)
+{
+	U8 portCData;
+
+		portCData = PINC;
+				
+		if(portCData & LINK_BUTTON_MASK)
+			return TRUE;
+	
+	return FALSE;
+}
+
+BOOL IsLinkButtonOn(void)
+{
+		if(IsLinkButtonOff())
+			return FALSE;
+			
+	return TRUE;
+}
+
+
+
+////////////////////////////////////////////////////////////////////
+//
+// Initialize Machine
+//
+////////////////////////////////////////////////////////////////////
+
+void    Init_LinkDebounceManager(void)
+{
+	debounceCounter = 0;
+}
+
+////////////////////////////////////////////////////////////////////
+//
+// Exit Procedures
+//
+////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////
+//
+// GoActive
+//
+////////////////////////////////////////////////////////////////////
+
+NEW_STATE   LDM_exitA(void)
+{
+		StartTimer(MILLISECONDS(50));
+
+    return LDM_ACTIVE;
+}
+
+
+////////////////////////////////////////////////////////////////////
+//
+// TimeOut
+//
+////////////////////////////////////////////////////////////////////
+
+NEW_STATE   LDM_exitB(void)
+{
+		StartTimer(MILLISECONDS(50));
+
+		if(IsLinkButtonOn()) // Link Button Hit
+		{
+			++debounceCounter;
+			
+			return LDM_DEBOUNCE_ON;
+		}	
+			
+    return SAME_STATE;    
+}
+
+
+////////////////////////////////////////////////////////////////////
+//
+// TimeOut
+//		while in LDM_DEBOUNCE_ON
+//
+////////////////////////////////////////////////////////////////////
+
+NEW_STATE   LDM_exitC(void)
+{
+		StartTimer(MILLISECONDS(50));
+
+		if(IsLinkButtonOn()) // Link Button Still Hit
+		{
+			++debounceCounter;
+			
+			if(debounceCounter > MAX_DEBOUNCE)
+			{
+				SendMessage(LinkButtonManager, LinkButtonOn);
+		
+				debounceCounter = 0;		
+				
+				return LDM_DEBOUNCE_OFF;
+			}				
+		}
+		else
+		{
+			debounceCounter = 0;
+		}		
+		
+	return SAME_STATE;
+}
+
+////////////////////////////////////////////////////////////////////
+//
+// TimeOut
+//		while in LDM_DEBOUNCE_OFF
+//
+////////////////////////////////////////////////////////////////////
+
+NEW_STATE   LDM_exitD(void)
+{
+		StartTimer(MILLISECONDS(50));
+
+		if(IsLinkButtonOff()) // Link Button Still Released
+		{
+			++debounceCounter;
+			
+			if(debounceCounter > MAX_DEBOUNCE)
+			{
+				SendMessage(LinkButtonManager, LinkButtonOff);
+				
+				debounceCounter = 0;
+				
+				return LDM_DEBOUNCE_ON;
+			}				
+		}		
+		else
+		{
+			debounceCounter = 0;
+		}	
+	
+	return SAME_STATE;
+}
+
+
+
+////////////////////////////////////////////////////////////////////
+//
+// State Matrix Tables
+//
+////////////////////////////////////////////////////////////////////
+
+STATE_TRANSITION_MATRIX(_LDM_IDLE)
+EV_HANDLER(GoActive, LDM_exitA)
+STATE_TRANSITION_MATRIX_END;
+
+STATE_TRANSITION_MATRIX(_LDM_ACTIVE)
+EV_HANDLER(TimeOut, LDM_exitB)
+STATE_TRANSITION_MATRIX_END;
+
+STATE_TRANSITION_MATRIX(_LDM_DEBOUNCE_ON)
+EV_HANDLER(TimeOut, LDM_exitC)
+STATE_TRANSITION_MATRIX_END;
+
+STATE_TRANSITION_MATRIX(_LDM_DEBOUNCE_OFF)
+EV_HANDLER(TimeOut, LDM_exitD)
+STATE_TRANSITION_MATRIX_END;
+
+
+// 
+// VERY IMPORTANT : 
+//      State Entry definition order MUST match the 
+//      order of the state definition in the .H File 
+//
+//
+//      This the State Machine Response Entry
+//
+
+SM_RESPONSE_ENTRY(LDM_Main_Entry)
+	STATE(_LDM_IDLE)						,
+	STATE(_LDM_ACTIVE)						,
+	STATE(_LDM_DEBOUNCE_ON)					,
+	STATE(_LDM_DEBOUNCE_OFF)				
+SM_RESPONSE_END
+
+
+////////////////////////////////////////////////////////////////////
+//
+// Utility functions
+//
+////////////////////////////////////////////////////////////////////
+
+

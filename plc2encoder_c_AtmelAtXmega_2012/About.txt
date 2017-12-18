@@ -1,0 +1,8 @@
+Project PLC2 Absolute Encoder Input Embedded Board
+Written in C
+For the Atmel AT XMega microcontroller
+Date 2012
+
+Legacy code for demonstartion purposes only.
+Support files such as headers/linkers/library files etc., are not included.
+Compilers, assemblers may no longer be available.
