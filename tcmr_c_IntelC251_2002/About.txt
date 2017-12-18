@@ -1,0 +1,8 @@
+Project Timing Control Module for Register Camera, driver board 
+Written in C, Keil as Cross compliler
+For the INTEL C251 Embedded microcontroller
+Date 2002
+
+Legacy code for demonstartion purposes only.
+Support files such as headers/linkers/library files etc., are not included.
+Compilers, assemblers may no longer be available.
