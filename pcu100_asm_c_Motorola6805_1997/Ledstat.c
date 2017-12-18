@@ -6,32 +6,53 @@
 //
 
 
+/////////////////////////////////////////////////////////////////////////////
+//
+//
+//	$Header:   N:/pvcs52/projects/pcu100~1/ledstat.c_v   1.2   Apr 11 1997 09:53:12   Paul L C  $
+//	$Log:   N:/pvcs52/projects/pcu100~1/ledstat.c_v  $
+//
+//   Rev 1.2   Apr 11 1997 09:53:12   Paul L C
+//Discovered problems where the Full Cadence was not 
+//being displayed. This is now corrected.
+//
+//   Rev 1.1   Mar 25 1997 09:44:48   Paul L C
+//Changed cadence for transmit for more visibility.
+//
+//   Rev 1.0   Feb 26 1997 10:54:38   Paul L C
+//Initial Revision
+//
+//
+/////////////////////////////////////////////////////////////////////////////
+
+
+
 //////////////////////////////////////////////////
 //
-// Private Members								
+// Private Members
 //
 //////////////////////////////////////////////////
 
-BYTE	LEDmask;
-BYTE	LEDmaskShift,CurrCadence;
-BYTE	CadenceCount;
-
-BYTE	PrevLEDcadence;
+BYTE	LEDmask,
+		LEDmaskShift,
+		CurrCadence, 			// Index to one of the 4 candence bytes
+		TransmitCadenceCount,	// Index to one of the 8 cadence bits
+		PrevLEDcadence;
 
 
 //////////////////////////////////////////////////
 //
-// Cadence Table								
+// Cadence Table
 //
 //////////////////////////////////////////////////
 
 const BYTE	LEDcadenceTbl[] = {
 
-	// 32 State Cadence	
+	// 32 State Cadence
 
-	0xff, 0xff, 0xff, 0xff,		// Steady		
+	0xff, 0xff, 0xff, 0xff,		// Steady
 	0xff, 0xff, 0x00, 0x00,		// Slow Pulse
-	0xaa, 0xaa, 0xaa, 0xaa,		// Fast Pulse
+	0xaa, 0xaa, 0x00, 0x00,		// Fast Pulse
 	0x80, 0x00, 0x00, 0x00		// Strobed
 };
 
@@ -52,25 +73,31 @@ const BYTE	LEDcadenceTbl[] = {
 
 void	LatchLEDbit(void) {
 
-	LEDmask >>= 1;
-
-	if(++LEDmaskShift > 7) {
-
-		LEDmaskShift = 0;
-		LEDmask = 0x80;
-
-		if(++CurrCadence > 3)
-			CurrCadence = 0;
-	}
-
 	if(LEDmask & (LEDcadenceTbl[StartLEDcadence+CurrCadence]))
-		SetLED; else ClearLED;
+
+			SetLED;	else ClearLED;
+
+
+		// Adjust Masks
+
+		if(++LEDmaskShift > 7) {
+
+			LEDmaskShift = 0;
+			LEDmask = 0x80;
+
+			if(++CurrCadence > 3)
+				CurrCadence = 0;
+
+		} else {
+
+			LEDmask >>= 1;
+		}
 }
 
 
 //////////////////////////////////////////////////
 //
-// State Machine Initialization					
+// State Machine Initialization
 //
 //////////////////////////////////////////////////
 
@@ -84,7 +111,7 @@ BYTE	Construct_LEDstatus(void) {
 
 //////////////////////////////////////////////////
 //
-// GoActive Message, While in Idle				
+// GoActive Message, While in Idle
 //
 //////////////////////////////////////////////////
 
@@ -100,7 +127,7 @@ BYTE	LED_exitA(void) {
 
 //////////////////////////////////////////////////
 //
-// Start Transmit States						
+// Start Transmit States
 //
 //////////////////////////////////////////////////
 
@@ -110,7 +137,9 @@ BYTE	LED_exitB(void) {
 
 		StartLEDcadence = FASTPULSE;
 
-		CadenceCount = 0;
+		CurrCadence = TransmitCadenceCount = 0;
+		LEDmaskShift = 0;
+		LEDmask = 0x80;
 
 	return LED_TRANSMIT;
 }
@@ -118,9 +147,9 @@ BYTE	LED_exitB(void) {
 
 //////////////////////////////////////////////////
 //
-// TimedOut while in Active State				
-//												
-// ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;; 
+// TimedOut while in Active State
+//
+//////////////////////////////////////////////////
 
 BYTE	LED_exitC(void) {
 
@@ -134,7 +163,17 @@ BYTE	LED_exitC(void) {
 
 //////////////////////////////////////////////////
 //
-// TimedOut while in Transmit State				
+// TimedOut while in Transmit State
+//
+//////////////////////////////////////////////////
+
+//////////////////////////////////////////////////
+//
+// Number of pulses :
+//
+
+#define	LED_XMIT_DURATION	32
+
 //
 //////////////////////////////////////////////////
 
@@ -144,9 +183,13 @@ BYTE	LED_exitD(void) {
 
 		LatchLEDbit();
 
-		if(++CadenceCount > 12) {
+		if(++TransmitCadenceCount >= LED_XMIT_DURATION) {
 
-			StartLEDcadence = PrevLEDcadence;
+				StartLEDcadence = PrevLEDcadence;
+
+				CurrCadence = TransmitCadenceCount = 0;
+				LEDmaskShift = 0;
+				LEDmask = 0x80;
 
 			return LED_ACTIVE;
 		}
@@ -157,7 +200,7 @@ BYTE	LED_exitD(void) {
 
 //////////////////////////////////////////////////
 //
-// State Matrix Table							
+// State Matrix Table
 //
 //////////////////////////////////////////////////
 

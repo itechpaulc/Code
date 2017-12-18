@@ -4,6 +4,33 @@
 //	#include "kernel.h"
 //
 
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+//
+//	$Header:   N:/pvcs52/projects/pcu100~1/kernel.c_v   1.3   May 07 1997 09:11:36   Paul L C  $
+//	$Log:   N:/pvcs52/projects/pcu100~1/kernel.c_v  $
+//
+//   Rev 1.3   May 07 1997 09:11:36   Paul L C
+//Made functions to be expanded "inline" to reduce RAM stack usage.
+//Created an inlined version of sendMessage for the ISRs.
+//
+//   Rev 1.2   Mar 25 1997 09:50:54   Paul L C
+//CRC checking is now done outside of the interrupt service
+//routine of the Comm Machine.
+//
+//   Rev 1.1   Mar 06 1997 11:07:24   Paul L C
+//Corrected some comments.
+//
+//   Rev 1.0   Feb 26 1997 10:54:36   Paul L C
+//Initial Revision
+//
+//
+/////////////////////////////////////////////////////////////////////////////
+
+
+
 void	*currMessage;
 void	*lastMessage;
 
@@ -33,13 +60,24 @@ SM_message	messageQueue[MAX_MESSAGE_COUNT];
 // Contains the Current State of the
 // individual machines
 //
+// Important : a state machine can only have
+//		a maximum of 127 states !
+//
 //////////////////////////////////////////////////
 
 BYTE	SM_States[SM_COUNT];
-BYTE	msgCount;
 
+
+
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+//
+// These address constants
+// will be loaded at ROM PAGE 0
+//
 
 #asm
+
 SM_TEX:
 
 	fdb		_KERNEL 			// SM 0
@@ -50,11 +88,19 @@ SM_TEX:
 	fdb		_ATODDRIVER			// SM 5
 	fdb		_DIGITALINMONITOR	// SM 6
 	fdb		_DIGITALOUTCNTRLR	// SM 7
+	fdb		_UPDOWNSWMONITOR	// SM 8
+	fdb		_SHEETCOUNTER		// SM 9
 
 #endasm
 
 
 const	WORD * SM_TableEntries[SM_COUNT] @SM_TEX;
+
+
+//
+//
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
 
 
 
@@ -74,19 +120,37 @@ void	SendMessage(BYTE msg, BYTE sm_id)
 		lastMessage = messageQueue;
 	else
 		lastMessage+=2;
-
-
-	if(lastMessage == currMessage)
-		while(1) // Error
-			;
 }
 
+//////////////////////////////////////////////////
+//
+// Inlined SendMessage, for ISRs
+//
+//////////////////////////////////////////////////
 
-BYTE	GetState(BYTE sm_id)
-{
-	return	SM_States[sm_id];
-}
+#define	SendISRMessage(msg,sm_id) {	*(lastMessage+1) = (sm_id); 			\
+									*lastMessage = (msg); 					\
+									if(lastMessage == LAST_MESSAGE_SLOT)	\
+										lastMessage = messageQueue; 		\
+									else									\
+										lastMessage+=2; }
 
+
+//////////////////////////////////////////////////
+//
+// Aside from the kernel's intertask communication
+// and timing facility, the kernel is also a state
+// machine. It is available to perform system
+// house keeping.
+//
+//////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////
+//
+// Kernel Initialization
+//
+//////////////////////////////////////////////////
 
 BYTE	Construct_Kernel()
 {
@@ -98,10 +162,15 @@ BYTE	Construct_Kernel()
 
 //////////////////////////////////////////////////
 //
-//
+// This is the main kernel processing routine.
+// The message queue is checked for message
+// avaiablitity. If a message is avaiable, the
+// kernel then checks the receiving state machine
+// for its readiness to receive the message. An
+// exit function is then performed if the message
+// is accepted.
 //
 //////////////////////////////////////////////////
-
 
 far 	* __tablePtr;
 
@@ -109,8 +178,6 @@ void	RunKernel(void)
 {
 	BYTE 	msgSearch;
 	BYTE    currSMtimer;
-
-	BYTE	bug;
 
 	if(currMessage != lastMessage)
 	{
@@ -121,20 +188,30 @@ void	RunKernel(void)
 		// Point to State Machine entry table start
 		// OffSet to the message destination machine
 
-		__longIX = SM_TableEntries[currSM_ID];
+		__tablePtr = SM_TableEntries[currSM_ID];
 
 		// Point to the message Search Table Based on
 		// the machine's current state used as an offset
 
-		__longIX += (2 * currSM_STATE);
+		//__tablePtr += (2 * currSM_STATE);
+
+		#asm
+			LDA		currSM_STATE
+			LSLA
+			ADD 	__tablePtr+1
+			STA     __tablePtr+1
+			LDA     __tablePtr
+			ADC		#$00
+			STA		__tablePtr
+		#endasm
 
 		// Get the Address of the Message Matrix
 
-		__tablePtr = (*(__longIX));
+		 __tablePtr = (*(__tablePtr));
 
 		// Search for a message match within the state
 
-		for(;;)
+		while(1)
 		{
 			msgSearch = *(__tablePtr);
 
@@ -145,35 +222,39 @@ void	RunKernel(void)
 
 				__tablePtr = (*(__tablePtr));	// Load the address of the
 												// exit function
-				__longIX = __tablePtr;
-
 				#asm
-					LDA	#$CC 					// 6805 JSR instruction
-					STA	__longIX-1
-					JSR	__longIX-1
+					LDA	#$CC 					// 6805 JMP instruction
+					STA	__tablePtr-1
+					JSR	__tablePtr-1
 				#endasm
 
-				SM_States[currSM_ID] = ac;
+				SM_States[currSM_ID] = ac;		// update the state of the
+												// current machine
 				break;
 			}
+
 			if(msgSearch == NULL_MESSAGE)
 			{
+#ifdef DEVELOPMENT
 				DoUnhandledMsg();
-				break;
+#endif
+				break;							// message was not accepted
 			}
 
 			__tablePtr += 3;					// Point to the next message
 		}
 
 
-		if(currMessage == LAST_MESSAGE_SLOT)
-			currMessage = messageQueue;
+		if(currMessage == LAST_MESSAGE_SLOT)	// Update circular message buffer's
+			currMessage = messageQueue;			// currMessage pointer
 		else
 			currMessage+=2;
-
 	}
 
-	// Process Timer
+
+	//////////////////////////////////////////////////
+	// Process Timer , flagged by ISR
+	//////////////////////////////////////////////////
 
 	if(SYS_TICK_ELAPSED)
 	{
@@ -186,77 +267,93 @@ void	RunKernel(void)
 				sysTimers[currSMtimer]--;
 
 				if(sysTimers[currSMtimer] == 0)
-				{
-					// debug
-					if(currSMtimer == 6)
-						bug = 1;
-
-					SendMessage(TimeOut, currSMtimer);
-				}
+					SendISRMessage(TimeOut, currSMtimer);
 			}
 		}
 	}
 
-	// Process SPI
+
+	//////////////////////////////////////////////////
+	// Process SPI , flagged by ISR
+	//////////////////////////////////////////////////
 
 	if(SYS_SPI_DATA_READY)
 	{
 		CLEAR_SYS_SPI_FLAG;
 
-		SendMessage(SPIdataReady, ATOD_DRIVER_SM_ID);
+		SendISRMessage(SPIdataReady, ATOD_DRIVER_SM_ID);
 	}
 
-	// Process SCI
+
+	//////////////////////////////////////////////////
+	// Process SCI , flagged by ISR
+	//////////////////////////////////////////////////
 
 	switch(SystemSCIstatus)
 	{
 		case SCI_NO_STATUS 		:
 			break;
 
-		case SCI_CMD_READY 		:
-			SendMessage(CommGoIdle, SPUCOMM_SM_ID);
-			SendMessage(CommandReceived, PCUMNGR_SM_ID);
+		case SCI_BYTE_SENT	:
+			SendISRMessage(ByteSent, SPUCOMM_SM_ID);
 			SystemSCIstatus = SCI_NO_STATUS;
 			break;
 
-		case SCI_BYTE_SENT	:
-            SendMessage(ByteSent, SPUCOMM_SM_ID);
+		case SCI_CMD_41_READY	:
+			SendISRMessage(CommGoIdle, SPUCOMM_SM_ID);
+			SendISRMessage(CommandReceived, PCUMNGR_SM_ID);
+			SystemSCIstatus = SCI_NO_STATUS;
+			break;
+
+		case SCI_CMD_READY 		:
+			SendMessage(CommGoIdle, SPUCOMM_SM_ID);
+
+			if(IsCrcOk())
+				SendISRMessage(CommandReceived, PCUMNGR_SM_ID);
+					else
+				SendISRMessage(InvalidPacket, PCUMNGR_SM_ID);
+
 			SystemSCIstatus = SCI_NO_STATUS;
 			break;
 
 		case SCI_INVALID_PACKET	:
-			SendMessage(CommGoIdle, SPUCOMM_SM_ID);
-			SendMessage(InvalidPacket, PCUMNGR_SM_ID);
+			SendISRMessage(CommGoIdle, SPUCOMM_SM_ID);
+			SendISRMessage(InvalidPacket, PCUMNGR_SM_ID);
 			SystemSCIstatus = SCI_NO_STATUS;
 			break;
-
 	}
 }
 
 
 //////////////////////////////////////////////////
 //
-//
+// If a message is sent to a machine and that
+// machine is not ready for the message, the
+// message is lost and considered unhandled.
+// This allows us to see these cases while in
+// the development stages.
 //
 //////////////////////////////////////////////////
 
-void	DoUnhandledMsg(void)
-{
-	/*
+#ifdef DEVELOPMENT
 	BYTE 	unhandledMsgCount;
 	BYTE	debug1, debug2;
 
-	unhandledMsgCount++;
+	void	DoUnhandledMsg(void)
+	{
+		unhandledMsgCount++;
 
-	debug1 = currMSG_ID;
-	debug2 = currSM_ID;
-    */
-}
+		debug1 = currMSG_ID;
+		debug2 = currSM_ID;
+	}
+#endif
 
 
 //////////////////////////////////////////////////
 //
-//
+// The kernel is a state machine in itself and
+// is intended for background processing of
+// system tasks.
 //
 //////////////////////////////////////////////////
 

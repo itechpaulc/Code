@@ -5,6 +5,43 @@
 //	#include "atod.h"
 //
 
+
+/////////////////////////////////////////////////////////////////////////////
+//
+//
+//	$Header:   N:/pvcs52/projects/pcu100~1/atod.c_v   1.4   Apr 25 1997 09:57:38   Paul L C  $
+//	$Log:   N:/pvcs52/projects/pcu100~1/atod.c_v  $
+//
+//   Rev 1.4   Apr 25 1997 09:57:38   Paul L C
+//Made changes to accomodate CPU port remapping.
+//
+//   Rev 1.3   Mar 25 1997 09:47:58   Paul L C
+//Optimized filtering to use bit shifting instead of long divides.
+//Added message processing for GoFastActive. This allow the AtoD
+//machine to go from polling mode into Sample As Fast As Possible
+//mode immediately. 
+//
+//   Rev 1.2   Mar 18 1997 08:29:16   Paul L C
+//Union needed to specify BothBytes (bb). These errors were
+//flagged by the new compiler.
+//
+//   Rev 1.1   Mar 04 1997 15:20:56   Paul L C
+//Created 2 Filter types, one for fast reading when motor is active 
+//and one for atod value refresh when motor is idle. Added a 
+//settling state to make sure atod values are stable before any
+//moves are executed. Made readingMSB a bit test, AtoDIsSettled
+//a bit test.
+//
+//
+//
+//   Rev 1.0   Feb 26 1997 10:54:28   Paul L C
+//Initial Revision
+//
+//
+/////////////////////////////////////////////////////////////////////////////
+
+
+
 //////////////////////////////////////////////////
 //
 // Private Members
@@ -12,17 +49,18 @@
 //////////////////////////////////////////////////
 
 
+union		WORDtype	instantAtoDvalue;
 
 
-WORD	instantAtoDvalue,
-		prevAtoDvalue;
+WORD		prevAtoDvalue;
 
-BOOL	ReadingMSB;
+BYTE		samplingRate,
+			sampleCount;
 
 
-#define		EnableAtoDchipSelect	(PORT_B.AD_CSEL_NOT = CLEAR)
+#define		EnableAtoDchipSelect	(PORT_A.AD_CSEL_NOT = CLEAR)
 
-#define		DisableAtoDchipSelect	(PORT_B.AD_CSEL_NOT = SET)
+#define		DisableAtoDchipSelect	(PORT_A.AD_CSEL_NOT = SET)
 
 
 #define		SPIdoneIrqEnable		(SPCR.SPIE = TRUE)
@@ -36,43 +74,78 @@ BOOL	ReadingMSB;
 
 
 
+
 //////////////////////////////////////////////////
 //
 // Virtual Message Interface
 //
 //////////////////////////////////////////////////
 
+void	SetAtoDsamplingRate(BYTE sRate) {
+
+	samplingRate = sRate;
+
+		if(sRate == FAST_SAMPLING_RATE)
+			DO_FAST_FILTER;
+		else
+			DO_SLOW_FILTER;	// for :
+							// SETTLE_SAMPLING_RATE or
+							// NORMAL_SAMPLING_RATE
+}
 
 
 
 //////////////////////////////////////////////////
 //
-// Private Helper Function
+// Private Helper Functions
 //
 //////////////////////////////////////////////////
 
 void	FilterReadings(void) {
 
-	WORD t1;
 
-		t1 = (prevAtoDvalue * 4/5);
+		// currAtoDvalue = 93% prevAtoDvalue + 7% instantAtoDvalue.Word
 
-		currAtoDvalue = t1 + (instantAtoDvalue /5);
+		currAtoDvalue = (prevAtoDvalue * 15 + instantAtoDvalue.Word) >> 4;
+
+
+		/*
+		if(FILTER_FAST) {
+
+			// currAtoDvalue = 50% prevAtoDvalue + 50% instantAtoDvalue.Word
+
+			currAtoDvalue = (prevAtoDvalue + instantAtoDvalue.Word) >> 1;
+
+		} else {
+
+			// currAtoDvalue = 75% prevAtoDvalue + 25% instantAtoDvalue.Word
+
+			currAtoDvalue = (prevAtoDvalue * 3 + instantAtoDvalue.Word) >> 2;
+		}
+        */
+
+	instantAtoDvalue.Word = 0x0000;
+
+	prevAtoDvalue = currAtoDvalue;
 }
 
 
+//////////////////////////////////////////////////
+//
+// Start the AtoD reading process
+//
+//////////////////////////////////////////////////
 
 void	SampleAtoD(void)
 {
-			ReadingMSB = TRUE;
+		SET_READING_MSB();
 
-			EnableAtoDchipSelect;
+		EnableAtoDchipSelect;
 
-			SPDR = 0x00;			// Put dummy data to initiate
+		SPDR = 0x00;				// Put dummy data to initiate
 									// transaction for MSB
-			SPIdoneIrqEnable;
+		SPIdoneIrqEnable;
 }
-
 
 
 //////////////////////////////////////////////////
@@ -105,20 +178,20 @@ BYTE	Construct_ATODdriver(void) {
 
 BYTE	ATDM_exitA(void) {
 
-		SPIsystemEnable;
+		sampleCount = 0;
+		CLEAR_ATOD_SETTLED();
 
-		// (2 Mhz / 16) = 125 Khz
+			SPIsystemEnable;
 
-		SPCR.MSTR = SET;
-		SPCR.SPR1 = SET;
-		SPCR.SPR0 = CLEAR;
+			// (2 Mhz / 16) = 125 Khz
 
-		if(samplingRate == NORMAL_SAMPLING_RATE)
-			StartTimer(samplingRate);
-		else
-			SampleAtoD();
+			SPCR.MSTR = SET;
+			SPCR.SPR1 = SET;
+			SPCR.SPR0 = CLEAR;
 
-	return ATDM_ACTIVE;
+		SampleAtoD();
+
+	return ATDM_SETTLE;
 }
 
 
@@ -132,8 +205,9 @@ BYTE	ATDM_exitB(void) {
 
 		SampleAtoD();
 
-	return SAME_STATE;
+	return SAME_STATE;	// ACTIVE
 }
+
 
 //////////////////////////////////////////////////
 //
@@ -143,16 +217,63 @@ BYTE	ATDM_exitB(void) {
 
 BYTE	ATDM_exitC(void) {
 
-		FilterReadings();
-
-		instantAtoDvalue = 0x0000;
-
-		prevAtoDvalue = currAtoDvalue;
+	FilterReadings();
 
 		if(samplingRate == NORMAL_SAMPLING_RATE)
-			StartTimer(samplingRate);
+			StartTimer(samplingRate);	// Sample in Time intervals
 		else
-			SampleAtoD();
+			SampleAtoD();				// Sample as fast as possible
+
+	return SAME_STATE;	// ACTIVE
+}
+
+
+//////////////////////////////////////////////////
+//
+// SPI Data Ready Message, While in SETTLE
+//
+//////////////////////////////////////////////////
+
+BYTE	ATDM_exitD(void) {
+
+	FilterReadings();
+
+			sampleCount++;
+
+			// Check if we have enough samples
+
+			if(sampleCount != ATOD_SETTLE_SAMPLES) {
+
+					SampleAtoD();
+
+				return SAME_STATE;
+			}
+
+		if(samplingRate == NORMAL_SAMPLING_RATE)
+			StartTimer(samplingRate);	// Sample in Time intervals
+		else
+			SampleAtoD();				// Sample as fast as possible
+
+		SET_ATOD_SETTLED();
+
+	return ATDM_ACTIVE;	// SETTLE DONE
+}
+
+
+//////////////////////////////////////////////////
+//
+//  GoAtoDfastActive Message, While in ACTIVE
+//
+//////////////////////////////////////////////////
+
+
+BYTE	ATDM_exitE(void) {
+
+		SetAtoDsamplingRate(FAST_SAMPLING_RATE);
+
+		CancelTimer();
+
+		SampleAtoD();
 
 	return SAME_STATE;
 }
@@ -168,6 +289,7 @@ BYTE	ATDM_exitC(void) {
 #asm
 _ATODDRIVER:
 	fdb 	xATDM_IDLE_MATRIX
+	fdb 	xATDM_SETTLE_MATRIX
 	fdb		xATDM_ACTIVE_MATRIX
 #endasm
 
@@ -187,11 +309,20 @@ xATDM_IDLE_MATRIX:
 #endasm
 
 #asm
+xATDM_SETTLE_MATRIX:
+	fcb		SPIdataReady
+	fdb		ATDM_exitD
+	fcb		NULL_MESSAGE
+#endasm
+
+#asm
 xATDM_ACTIVE_MATRIX:
 	fcb 	TimeOut
 	fdb		ATDM_exitB
 	fcb		SPIdataReady
 	fdb		ATDM_exitC
+	fcb		GoAtoDfastActive
+	fdb		ATDM_exitE
 	fcb		NULL_MESSAGE
 #endasm
 
@@ -212,19 +343,19 @@ void	__SPI_ISR(void)
 {
 	if(SPSR.SPIF == TRUE)
 	{
-		if(ReadingMSB)
+		if(IS_READING_MSB())
 		{
-			ReadingMSB = FALSE;
+			CLEAR_READING_MSB();
 
-			instantAtoDvalue = SPDR;
+			instantAtoDvalue.bb.HiByte = SPDR;
 
-			instantAtoDvalue <<= 7;
+			instantAtoDvalue.Word >>= 1;
 
 			SPDR = 0x00;	// Initiate LSB Transfer
 		}
 			else
 		{
-			instantAtoDvalue |= (SPDR >> 1);
+			instantAtoDvalue.bb.LowByte |= (SPDR >> 1);
 
 			SPIdoneIrqDisable;
 

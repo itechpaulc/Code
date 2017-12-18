@@ -4,17 +4,74 @@
 //
 
 
+
+/////////////////////////////////////////////////////////////////////////////
+//
+//
+//	$Header:   N:/pvcs52/projects/pcu100~1/spucomm.c_v   1.5   May 07 1997 09:01:54   Paul L C  $
+//	$Log:   N:/pvcs52/projects/pcu100~1/spucomm.c_v  $
+//
+//   Rev 1.5   May 07 1997 09:01:54   Paul L C
+//Made functions to be expanded "inline" to reduce RAM stack usage.
+//Moved some variables into the header files for visibility. Optimized 
+//the CRC routine to avoid the use of JSR or stack space.
+//
+//   Rev 1.4   May 02 1997 13:45:40   Paul L C
+//Added error logging, changed some macros to follow
+//convention and added comments.
+//
+//   Rev 1.3   Apr 11 1997 10:29:36   Paul L C
+//Implemented processing of the GoIdle message.
+//
+//   Rev 1.2   Mar 25 1997 09:52:18   Paul L C
+//CRC checking was taken out of the Comm ISR. This
+//was causing problems with the 1msec timer updates
+//since the CRC checking routine takes 1.75 msec to 
+//finish.
+//
+//   Rev 1.1   Mar 18 1997 08:33:38   Paul L C
+//CommBuffer indexing was going out of bounds. Added a
+//check to prevent this. Also added a check for ID mismatches to
+//synchronize the comm machine immediately.
+//
+//   Rev 1.0   Feb 26 1997 10:54:48   Paul L C
+//Initial Revision
+//
+//
+/////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////
+//
+//
+//////////////////////////////////////////////////
+
 #define		INTERBYTE_DELAY			2
+
+//////////////////////////////////////////////////
+//
+// Note : CRC calculation time is added to this
+//        parameter.
+//
+//////////////////////////////////////////////////
 
 #define		REPLY_DELAY				4
 
 
+//////////////////////////////////////////////////
+//
+//
+//////////////////////////////////////////////////
 
 extern	BYTE	CommBuffer[CBUFF_SIZE];
 
 extern	BYTE	PCU_ID;
 
 
+//////////////////////////////////////////////////
+//
+//
+//////////////////////////////////////////////////
 
 #define		LvlSftXmitEnable     	(PORT_A.XMIT_ENABLE = 1)
 #define		LvlSftXmitDisable		(PORT_A.XMIT_ENABLE = 0)
@@ -25,19 +82,6 @@ extern	BYTE	PCU_ID;
 #define		XmitDoneIrqDisable		(SCCR2.TCIE = FALSE)
 
 
-
-
-
-//////////////////////////////////////////////////
-//
-// Private Members
-//
-//////////////////////////////////////////////////
-
-
-BYTE	byteCount;
-
-BYTE	Length;
 
 
 
@@ -55,22 +99,9 @@ void	SetBaudRate(BYTE baudRate)
 }
 
 
-
 //////////////////////////////////////////////////
 //
-
-void	ClearCommBuffer(void) {
-
-	for(Length=0; Length<CBUFF_SIZE ;Length++)
-		CommBuffer[Length] = 0x00;
-}
-
-
-
-
-//////////////////////////////////////////////////
-//
-// Private Helper Function
+// Private Helper Functions
 //
 //////////////////////////////////////////////////
 
@@ -79,6 +110,11 @@ void	SynchronizeComm(void)
 	byteCount = 0;
 }
 
+
+//////////////////////////////////////////////////
+//
+//
+//////////////////////////////////////////////////
 
 void	TransmitMode(void) {
 
@@ -89,6 +125,11 @@ void	TransmitMode(void) {
 	UartXmitEnable;
 }
 
+
+//////////////////////////////////////////////////
+//
+//
+//////////////////////////////////////////////////
 
 void	ReceiveMode(void)
 {
@@ -101,13 +142,10 @@ void	ReceiveMode(void)
 }
 
 
-void	DisableComm(void)
-{
-	SCCR2 = 0x00;
-
-	LvlSftXmitDisable;
-}
-
+//////////////////////////////////////////////////
+//
+//
+//////////////////////////////////////////////////
 
 void	SendByte(BYTE byteToSend)
 {
@@ -117,55 +155,64 @@ void	SendByte(BYTE byteToSend)
 }
 
 
-
-//////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////
 //
-// CRC calculation routine
+// CRC calculation routine :
 //
-//////////////////////////////////////////////////
-
-/*
-
-; This routine performs the CRC calculation for a given packet.
-; This applies for packets to be sent or packets received.
-;
-; CommBuffer :
-;   contains the data from which the CRC (16 bit) value
-;	will be derived.
-;
-; TMPC1 =  PacketLength - 1
-;
-;
-;		TRANSMISSION:
-;
-;			When this routine is completed
-;  			CRC Bytes CRCGX1 and CRCGX2 will contain
-;			the CRC word to be used for transmission.
-;			Make sure the last 2 bytes of CommBuff are
-;			cleared before calling this routine
-;
-;		CRCGX1 = LO CRC
-;		CRCGX2 = HI CRC
-;
-;
-;		RECEPTION:
-;
-;			After reception of a packet set TMPC1 and call
-;			this routine. If CRCGX1 and CRCGX2 are both 0x00
-;			after the routine, then the CRC check was ok,
-;			the packet is ok.
-;
-
-*/
-
+// IMPORTANT : This routine takes 1.75 msec to complete
+//				@2mhz cpu speed.
+//
+/////////////////////////////////////////////////////////////
+//
+//
+// This routine performs the CRC calculation for a given packet.
+// This applies for packets to be sent or packets received.
+//
+// CommBuffer :
+//   contains the data from which the CRC (16 bit) value
+//	will be derived.
+//
+// TMPC1 =  PacketLength - 1
+//
+//
+//		TRANSMISSION:
+//
+//			When this routine is completed
+//  			CRC Bytes CRCGX1 and CRCGX2 will contain
+//			the CRC word to be used for transmission.
+//			Make sure the last 2 bytes of CommBuff are
+//			cleared before calling this routine
+//
+//		CRCGX1 = LO CRC
+//		CRCGX2 = HI CRC
+//
+//
+//		RECEPTION:
+//
+//			After reception of a packet set TMPC1 and call
+//			this routine. If CRCGX1 and CRCGX2 are both 0x00
+//			after the routine, then the CRC check was ok,
+//			the packet is ok.
+//
+/////////////////////////////////////////////////////////////
 
 BOOL	IsCrcOk(void)
 {
 	ProcessCRC();
 
-	return ((CRCGX1 == 0) && (CRCGX2 == 0)) ?
-		TRUE : FALSE ;
+		if((CRCGX1 != 0) || (CRCGX2 != 0)) {
+
+			LogCRCerror;
+			return	FALSE;
+		}
+
+
+	return TRUE;
 }
+
+/////////////////////////////////////////////////////////////
+//
+/////////////////////////////////////////////////////////////
 
 void	ProcessCRC(void)
 {
@@ -190,7 +237,29 @@ CRCPX0   EQU      $80               ;
 		STA		CRCGX0
 		LDA		#$7
 		STA		CRCNT1
-		JSR		S1
+S1A:
+		BRSET	7,CRCGX2,S2A
+
+		ROL		CRCGX0              ;CRC ROT
+		ROL		CRCGX1
+		ROL		CRCGX2
+
+		DEC		CRCNT1
+		BNE		S1A
+S2A:
+		LDA		#CRCPX0				;CRC XOR
+		EOR		CRCGX0
+		STA		CRCGX0
+		LDA		#CRCPX1
+		EOR		CRCGX1
+		STA		CRCGX1
+		LDA		#CRCPX2
+		EOR		CRCGX2
+		STA		CRCGX2
+
+		LDA		CRCNT1
+		BNE		S1A
+
 CRC0:
 		INCX
 		LDA		CommBuffer,x
@@ -201,41 +270,18 @@ CRC0:
 		STA		CRCGX0
 		LDA		#$7
 		STA		CRCNT1
-		JSR		S1
+S1B:
+		BRSET	7,CRCGX2,S2B
 
-		INC		CRCNT1
-
-		BRSET	0,TMPD1,CRC1
-		BCLR	6,CRCGX0
-		BRA		CRC2
-CRC1:
-		BSET	6,CRCGX0
-
-CRC2:	JSR		S1
-
-CRC3:
-		CPX		TMPC1
-		BNE		CRC0
-		JSR		CRCROT
-		BRA		CRC_GenDone
-S1:
-		BRSET	7,CRCGX2,S2
-
-		JSR		CRCROT
-		DEC		CRCNT1
-		BNE		S1
-S2:
-		JSR		CRCXOR
-		LDA		CRCNT1
-		BNE		S1
-		RTS
-CRCROT:
-		ROL		CRCGX0
+		ROL		CRCGX0              ;CRC ROT
 		ROL		CRCGX1
 		ROL		CRCGX2
-		RTS
-CRCXOR:
-		LDA		#CRCPX0
+
+		DEC		CRCNT1
+		BNE		S1B
+
+S2B:
+		LDA		#CRCPX0				;CRC XOR
 		EOR		CRCGX0
 		STA		CRCGX0
 		LDA		#CRCPX1
@@ -245,14 +291,55 @@ CRCXOR:
 		EOR		CRCGX2
 		STA		CRCGX2
 
-		RTS
+		LDA		CRCNT1
+		BNE		S1B
+
+		INC		CRCNT1
+
+		BRSET	0,TMPD1,CRC1
+		BCLR	6,CRCGX0
+		BRA		CRC2
+CRC1:
+		BSET	6,CRCGX0
+
+CRC2:
+S1C:
+		BRSET	7,CRCGX2,S2C
+
+		ROL		CRCGX0              ;CRC ROT
+		ROL		CRCGX1
+		ROL		CRCGX2
+
+		DEC		CRCNT1
+		BNE		S1C
+
+S2C:
+		LDA		#CRCPX0				;CRC XOR
+		EOR		CRCGX0
+		STA		CRCGX0
+		LDA		#CRCPX1
+		EOR		CRCGX1
+		STA		CRCGX1
+		LDA		#CRCPX2
+		EOR		CRCGX2
+		STA		CRCGX2
+
+		LDA		CRCNT1
+		BNE		S1C
+
+CRC3:
+		CPX		TMPC1
+		BNE		CRC0
+
+		ROL		CRCGX0              ;CRC ROT
+		ROL		CRCGX1
+		ROL		CRCGX2
 
 CRC_GenDone:
 
-		RTS
-
 #endasm
-}
+
+} // RTS
 
 
 
@@ -270,7 +357,6 @@ BYTE	Construct_SPUComm(void) {
 
 	return	SPUC_IDLE;
 }
-
 
 
 //////////////////////////////////////////////////
@@ -346,7 +432,6 @@ BYTE	SPUC_exitC(void)
 			return SPUC_IDLE;
 		}
 
-
 	StartTimer(INTERBYTE_DELAY);
 
 	return SAME_STATE;
@@ -400,10 +485,10 @@ BYTE	SPUC_exitD(void)
 
 BYTE	SPUC_exitE(void)
 {
-	StartTimer(CFG_MEASURE_RATE);
+		StartTimer(CFG_MEASURE_RATE);
 
-	if(CfgLineIsLow)
-		return	SPUC_SYNCHI;
+		if(IsCfgLineLow())
+			return	SPUC_SYNCHI;
 
 	return SAME_STATE;
 }
@@ -417,14 +502,14 @@ BYTE	SPUC_exitE(void)
 
 BYTE	SPUC_exitF(void)
 {
-	if(CfgLineIsHi) {
+		if(IsCfgLineHi()) {
 
-		SynchronizeComm();
+			SynchronizeComm();
 
-		ReceiveMode();
+			ReceiveMode();
 
-		return SPUC_CMD_WAIT;
-	}
+			return SPUC_CMD_WAIT;
+		}
 
 	StartTimer(CFG_MEASURE_RATE);
 
@@ -441,9 +526,12 @@ BYTE	SPUC_exitF(void)
 
 BYTE	SPUC_exitG(void)
 {
+		DisableComm();
+
+        CancelTimer();
+
 	return SPUC_IDLE;
 }
-
 
 
 
@@ -455,13 +543,27 @@ BYTE	SPUC_exitG(void)
 
 void	__SCI_ISR()
 {
+	//////////////////////////////////////////////////
 	//  Check if Receive Data Register Full
+	//////////////////////////////////////////////////
 
 	if (SCSR.RDRF == TRUE)
 	{
 		ac = SCSR;
 
-		CommBuffer[byteCount] = RDR;
+		if(byteCount >= MAX_PACKET_LEN)
+		{
+			// Max Length reached, reset comm
+
+			DisableComm();
+			SystemSCIstatus = SCI_INVALID_PACKET;
+
+			return;
+		}
+			else
+		{
+			CommBuffer[byteCount] = RDR;
+		}
 
 		if(byteCount == 0)
 		{
@@ -469,30 +571,40 @@ void	__SCI_ISR()
 
 			if((Length > MAX_PACKET_LEN) && (Length != COMMAND_41))
 			{
+				// Invalid Length Byte
+
+				LogLenOutOfRangeErr;
+
 				DisableComm();
 				SystemSCIstatus = SCI_INVALID_PACKET;
 			}
 		}
-		else	/* byteCount > 0 */
+		else	// byteCount > 0
 		{
 			if(Length == COMMAND_41)
 			{
 				DisableComm();
-				SystemSCIstatus = SCI_CMD_READY;
+				SystemSCIstatus = SCI_CMD_41_READY;
 			}
 
 			if(Length == (byteCount+1))
 			{
+				// We got the whole packet
+
+				DisableComm();
+
 				if(PCU_ID == CommBuffer[ID_SLOT])
 				{
-					DisableComm();
+					SystemSCIstatus = SCI_CMD_READY;
+				}
+				else
+				{
+					// ID Mismatch, message not for us
 
-					if(IsCrcOk())
-						SystemSCIstatus = SCI_CMD_READY;
-					else
-						SystemSCIstatus = SCI_INVALID_PACKET;
+					SystemSCIstatus = SCI_INVALID_PACKET;
 				}
 			}
+
 		}
 
 		byteCount++;
@@ -500,7 +612,9 @@ void	__SCI_ISR()
 
 		else
 
+	//////////////////////////////////////////////////
 	// Check for Transmit Complete
+	//////////////////////////////////////////////////
 
 	if (SCSR.TC == TRUE)
 	{

@@ -5,16 +5,34 @@
 //
 
 
+
+/////////////////////////////////////////////////////////////////////////////
+//
+//
+//	$Header:   N:/pvcs52/projects/pcu100~1/timer.c_v   1.1   May 07 1997 09:08:26   Paul L C  $
+//	$Log:   N:/pvcs52/projects/pcu100~1/timer.c_v  $
+//
+//   Rev 1.1   May 07 1997 09:08:26   Paul L C
+//Deleted functions that are expanded "inline" to reduce RAM stack usage.
+//These functions are now defined in the header file.
+//
+//   Rev 1.0   Feb 26 1997 10:54:52   Paul L C
+//Initial Revision
+//
+//
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+
 //////////////////////////////////////////////////
 //
-//
+// Initiate OC Timer to start immediately
 //
 //////////////////////////////////////////////////
 
 void    Init_Timers(void)
 {
-	/* Jump Start the O/C Timer */
-
 	#asm
 		LDX		ACNTHI 		; 3
 		LDA 	ACNTLO      ; 3
@@ -33,33 +51,8 @@ ST1:
 
 //////////////////////////////////////////////////
 //
-//
-//
-//////////////////////////////////////////////////
-
-void    StartTimer(BYTE  ticks)
-{
-	sysTimers[currSM_ID] = ticks;
-}
-
-
-
-
-//////////////////////////////////////////////////
-//
-//
-//
-//////////////////////////////////////////////////
-
-void    CancelTimer(void)
-{
-	sysTimers[currSM_ID] = 0;
-}
-
-
-//////////////////////////////////////////////////
-//
-//
+// This is the Timer
+// Interrupt Service Routine
 //
 //////////////////////////////////////////////////
 
@@ -83,7 +76,9 @@ void __TIMER_ISR(void)
 		#endasm
 	}
 
+    //
 	// if(TSR.ICF) { }
+    //
 
 }
 

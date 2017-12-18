@@ -5,46 +5,110 @@
 //	#include "motor.h"
 //
 
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+//
+//	$Header:   N:/pvcs52/projects/pcu100~1/motor.c_v   1.9   Jun 23 1997 10:28:54   Paul L C  $
+//	$Log:   N:/pvcs52/projects/pcu100~1/motor.c_v  $
+//
+//   Rev 1.9   Jun 23 1997 10:28:54   Paul L C
+//Corrected an error where the PCU does not  move if ANY of
+//the limits are asserted. This is now change so that the PCU
+//can get out of the limit position. A function name was changed
+//for consistency.
+//
+//   Rev 1.8   May 16 1997 14:55:14   Paul L C
+//Corrected an error where the motor can go out of bounds
+//but does not detect the stall condition. Corrected an error
+//where the motor reports a stall if the requested target is 
+//the same as the current position.
+//
+//   Rev 1.7   May 07 1997 09:24:02   Paul L C
+//Made functions to be expanded "inline" to reduce RAM stack usage.
+//Moved some variables into the header files for visibility.
+//
+//   Rev 1.6   May 02 1997 14:01:14   Paul L C
+//Implemented HardWare Limit Cheking wihtin the motor
+//moving states. Errors are logged if detected.  Added setting 
+//of the MinMax AtoD range. Corrected IsTargetWithinLimit funtion -
+//it was not returning TRUE or FALSE.
+//
+//   Rev 1.5   Apr 11 1997 10:20:50   Paul L C
+//Implemented new states to perform nudging as the final
+//reverse positioning move. Cleaned up code.
+//
+//   Rev 1.4   Mar 25 1997 09:41:40   Paul L C
+//Added a check to determine if the requested target is within
+//range. The motor will not move if target is out of range. Added
+//a function GetMinReverse/ForwardMove to integrate several
+//procedure calls. Initialize MotorStatus register to MoveDone.
+//Added Send Message for AtoD to GoFastActive before motor
+//power is applied. Motor power now is applied in the moving
+//state. This improves the consistency of the motor timers.
+//
+//
+//
+//   Rev 1.3   Mar 18 1997 08:30:46   Paul L C
+//MCM_REVERSE_COASTING was not spelled correctly.
+//This error was flagged by the new compiler and is now fixed.
+//
+//   Rev 1.2   Mar 06 1997 11:02:52   Paul L C
+//Fixed an error where the first nudge "to position" was always
+//big. Made PositionChanged? functions to be inline. Also inlined
+//IsInMin/MaxPosition? functions. Improved nudge timing accuracy
+//where we first expire the timer before starting a new one. Added a
+//check for NudgeOnTime = 0, for motor to just remain IDLE.
+//
+//   Rev 1.1   Mar 04 1997 15:29:38   Paul L C
+//Slow sampling rate implemented when motor is in
+//the settling state. 10 samples are now taken after
+//the motor is done moving and in the settling state.
+//Added a define for position mask in
+//the function SetTarget.
+//
+//   Rev 1.0   Feb 26 1997 10:54:40   Paul L C
+//Initial Revision
+//
+//
+/////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////
+//
+// Note :
+//
+//   Due to the RAM size limitation, functions-
+//   calling-functions are avoided as much as
+//   possible. (to conserver stack, RAM space).
+//
+//   ROM size is not a concern (@ 8K).
+//
+//////////////////////////////////////////////////
+
+
 //////////////////////////////////////////////////
 //
 // Private Members
 //
 //////////////////////////////////////////////////
 
-WORD	targetPosition;
+WORD	originalTarget,
 
-WORD	prevPosition;
-
-WORD	minValidMove;
-
+		prevPosition;
 
 BYTE	timeOutTimer;
 
 
 
-//////////////////////////////////////////////////
-//
-// Motor Status Definitions
-
-
-BYTE	motorStatus;
-
-#define		Stall			0x00
-#define		MoveDone		0x04
-
-//
-//////////////////////////////////////////////////
-
-
-
-#define		TurnMotorForwardOn		(PORT_A.FRWRD_PORT = CLEAR)
-#define		TurnMotorReverseOn		(PORT_A.RVRSE_PORT = CLEAR)
+#define		TurnMotorForward		(PORT_A.FRWRD_PORT = CLEAR)
+#define		TurnMotorReverse		(PORT_A.RVRSE_PORT = CLEAR)
 
 #define		MotorForwardOff			(PORT_A.FRWRD_PORT = SET)
 #define		MotorReverseOff			(PORT_A.RVRSE_PORT = SET)
 
 #define		TurnMotorOff			MotorForwardOff;MotorReverseOff;
-
 
 
 #define		ResetTimeOutTimer       (timeOutTimer = 0)
@@ -53,12 +117,7 @@ BYTE	motorStatus;
 #define		LogMotorStalledStatus	(motorStatus = Stall)
 #define		LogMotorMoveDone        (motorStatus = MoveDone)
 
-#define		LogStallSystemError		(SystemErrors.ERR_MOTOR_STALL = TRUE)
-
-#define		LogStall				LogMotorStalledStatus;LogStallSystemError;
-
-
-
+#define		LogStall				LogMotorStalledStatus;LogStalledMotorErr;
 
 
 
@@ -67,26 +126,6 @@ BYTE	motorStatus;
 // Virtual Message Interface
 //
 //////////////////////////////////////////////////
-
-void	SetTarget(WORD	trgtPos) {
-
-	// Check against Limits
-
-	if(trgtPos > maxPosition)
-		targetPosition = maxPosition;
-	else
-
-	if(trgtPos < minPosition)
-		targetPosition = minPosition;
-
-	else
-
-	// Target is OK
-
-	targetPosition = trgtPos;
-}
-
-
 
 
 
@@ -103,10 +142,19 @@ BYTE	Construct_MotorController(void) {
 
 		minMove = INITIAL_MIN_MOVE;
 
-		movingTimeOut = INITIAL_MOVING_TIMEOUT;
+		nudgeOnTime		= INITIAL_NUDGE_ON_TIME;
+
+		movingTimeOut 	= INITIAL_MOVING_TIMEOUT;
 		coastingTimeOut = INITIAL_COASTING_TIMEOUT;
 
-		minPosition = maxPosition = NO_POS_LIMITS;
+		distanceToNudge = INITIAL_DISTANCE_TO_NUDGE;
+
+		// Initialize Limits
+
+		SetMinPosition(MIN_MOTOR_LIMIT);
+		SetMaxPosition(MAX_MOTOR_LIMIT);
+
+		motorStatus = MoveDone;
 
 	return MCM_IDLE;
 }
@@ -118,41 +166,71 @@ BYTE	Construct_MotorController(void) {
 //
 //////////////////////////////////////////////////
 
+#define	ATOD_RFRSH	5
+
 BYTE	MCM_exitA(void)
 {
-	if(IsPositionLimitSet() == FALSE)
-		return SAME_STATE;
+	motorStatus = NoStatus;
 
-	ResetTimeOutTimer;
+		// Is target within range ?
 
-		UpdateMinForwardMove();
+		if(IsTargetWithinLimits())
+		{
+			ResetTimeOutTimer;
 
-		if(targetPosition > minValidMove) {
+			if(targetPosition > GetMinForwardMove()) {
 
-				SetAtoDsamplingRate(FAST_SAMPLING_RATE);
-				StartTimer(MOVING_TIMER_TICK);
-				TurnMotorForward;
-				LatchForwardBit();
+					// Make AtoD driver sample as fast as possible
 
-			return MCM_FRWRD_MOVING;
+					SendMessage(GoAtoDfastActive, ATOD_DRIVER_SM_ID);
+					StartTimer(ATOD_RFRSH); // Time to Refresh AtoD
+
+				return MCM_FRWRD_MOVING;
+			}
+
+			if(targetPosition < GetMinReverseMove()) {
+
+					if(GetCurrPosition() - targetPosition < distanceToNudge)
+					{
+							// Distance is small enough to nudge
+
+							SendMessage(NudgeToTarget,THIS_SM);
+
+						return MCM_IDLE;
+					}
+
+
+					// Make AtoD driver sample as fast as possible
+
+					SendMessage(GoAtoDfastActive, ATOD_DRIVER_SM_ID);
+					StartTimer(ATOD_RFRSH); // Time to Refresh AtoD
+
+
+					// Setup For Reverse Nudging as the final move
+
+					originalTarget = targetPosition;	// keep original target
+
+					targetPosition += distanceToNudge;
+
+				return MCM_RVRSE_MOVING;
+			}
+
+			// just get ready for the next command
+
+			LogMotorMoveDone;
+
+			goto alreadyInMoveTarget;
+
 		}
 
-		UpdateMinReverseMove();
+	// Target Out of range
 
-		if(targetPosition < minValidMove) {
-
-				SetAtoDsamplingRate(FAST_SAMPLING_RATE);
-				StartTimer(MOVING_TIMER_TICK);
-				TurnMotorReverse;
-				LatchReverseBit();
-
-			return MCM_RVRSE_MOVING;
-		}
+	LogTargetRangeErr;
 
 
-		// Already in Target !
+alreadyInMoveTarget:
 
-		SendMessage(MotorMoveDone,PCUMNGR_SM_ID);
+	SendMessage(MotorMoveDone,PCUMNGR_SM_ID);
 
 	return SAME_STATE;
 }
@@ -179,28 +257,47 @@ BYTE	MCM_exitB(void)
 		}
 
 		if(PosChangedForward())
+		{
 			ResetTimeOutTimer;
+
+			UpdateMinForwardMove(); // New min move
+		}
 		else
 		{
+			if(IsInMaxHardwareLimit()) {
+
+					LogHWlimitStall;
+
+				goto frwrdMoveDone;
+			}
+
 			IncrementTimeOutTimer;
 
-			if(timeOutTimer == movingTimeOut)
-			{
+			if(timeOutTimer == movingTimeOut) {
+
 					// Motor has stalled
 					// while in Moving Forward
 
 					LogStall;
-					TurnMotorOff;
-					StartTimer(POSITION_SETTLE_TIMEOUT);
 
-				return	MCM_POSITION_SETTLE;
+				goto frwrdMoveDone;
 			}
 		}
 
-		UpdateMinForwardMove();
+		TurnOnForwardPower();
+
 		StartTimer(MOVING_TIMER_TICK);
 
 	return SAME_STATE;
+
+
+frwrdMoveDone:
+
+		TurnMotorOff;
+
+		StartTimer(POSITION_SETTLE_TIMEOUT);
+
+	return	MCM_POSITION_SETTLE;
 }
 
 
@@ -214,10 +311,19 @@ BYTE	MCM_exitC(void)
 {
 		if(PosChangedForward()) {
 
-			ResetTimeOutTimer;
+				ResetTimeOutTimer;
+				UpdateMinForwardMove();
+
 			goto posChngedFrwrdOK;
 		}
 
+		if(IsInMaxHardwareLimit())
+		{
+				LogHWlimitStall;
+				StartTimer(POSITION_SETTLE_TIMEOUT);
+
+			return	MCM_POSITION_SETTLE;
+		}
 
 		IncrementTimeOutTimer;
 
@@ -226,6 +332,8 @@ BYTE	MCM_exitC(void)
 				// Motor has stopped while
 				// in coasting Forward
 
+				LogMotorMoveDone;
+
 				StartTimer(POSITION_SETTLE_TIMEOUT);
 
 			return MCM_POSITION_SETTLE;
@@ -233,7 +341,6 @@ BYTE	MCM_exitC(void)
 
 posChngedFrwrdOK:
 
-		UpdateMinForwardMove();
 		StartTimer(COASTING_TIMER_TICK);
 
 	return SAME_STATE;
@@ -261,28 +368,47 @@ BYTE	MCM_exitD(void)
 		}
 
 		if(PosChangedReverse())
+		{
 			ResetTimeOutTimer;
+
+			UpdateMinReverseMove(); // New min move
+		}
 		else
 		{
+			if(IsInMinHardwareLimit()) {
+
+					LogHWlimitStall;
+
+				goto rvrsedMoveDone;
+			}
+
 			IncrementTimeOutTimer;
 
-			if(timeOutTimer == movingTimeOut)
-			{
+			if(timeOutTimer == movingTimeOut) {
+
 					// Motor has stalled
 					// while in Moving Reverse
 
 					LogStall;
-					TurnMotorOff;
-					StartTimer(POSITION_SETTLE_TIMEOUT);
 
-				return	MCM_POSITION_SETTLE;
+				goto rvrsedMoveDone;
 			}
 		}
 
-		UpdateMinReverseMove();
+		TurnOnReversePower();
+
 		StartTimer(MOVING_TIMER_TICK);
 
 	return SAME_STATE;
+
+
+rvrsedMoveDone:
+
+		TurnMotorOff;
+
+		StartTimer(POSITION_SETTLE_TIMEOUT);
+
+	return	MCM_POSITION_SETTLE;
 }
 
 
@@ -296,8 +422,18 @@ BYTE	MCM_exitE(void)
 {
 		if(PosChangedReverse()) {
 
-			ResetTimeOutTimer;
+				ResetTimeOutTimer;
+				UpdateMinReverseMove();
+
 			goto posChngedRvrsOK;
+		}
+
+		if(IsInMinHardwareLimit())
+		{
+				LogHWlimitStall;
+				StartTimer(POSITION_SETTLE_TIMEOUT);
+
+			return	MCM_POSITION_SETTLE;
 		}
 
 		IncrementTimeOutTimer;
@@ -307,58 +443,72 @@ BYTE	MCM_exitE(void)
 				// Motor has stopped while
 				// in coasting Reverse
 
+				LogMotorMoveDone;
+
 				StartTimer(POSITION_SETTLE_TIMEOUT);
 
-			return MCM_POSITION_SETTLE; // Motor has stopped
+			return MCM_INMOV_SETTLE; // Motor has stopped
 		}
 
 posChngedRvrsOK:
 
-		UpdateMinReverseMove();
 		StartTimer(COASTING_TIMER_TICK);
 
 	return SAME_STATE;
 }
 
 
-// debug fudging stall check !
-
 //////////////////////////////////////////////////
 //
-// Fudge to Position message, while in IDLE
+// Nudge to Position message, while in IDLE
 //
 //////////////////////////////////////////////////
 
 BYTE	MCM_exitF(void)
 {
-	if(IsPositionLimitSet() == FALSE)
-		return SAME_STATE;
+	motorStatus = NoStatus;
 
-	ResetTimeOutTimer;
+		// Is target within range ?
 
-		UpdateMinForwardMove();
+		if(IsTargetWithinLimits())
+		{
+			ResetTimeOutTimer;
 
-		if(targetPosition > minValidMove) {
+			if(targetPosition > GetMinForwardMove()) {
 
-				SetAtoDsamplingRate(FAST_SAMPLING_RATE);
-				StartTimer(FUDGE_MOTOR_ON_TIME);
-				TurnMotorForward;
-				LatchForwardBit();
+					// Make AtoD driver sample as fast as possible
 
-			return MCM_FRWRD_FUDGING;
+					SendMessage(GoAtoDfastActive, ATOD_DRIVER_SM_ID);
+					StartTimer(ATOD_RFRSH); // Time to Refresh AtoD
+
+				return MCM_FRWRD_NUDGING;
+			}
+
+			if(targetPosition < GetMinReverseMove()) {
+
+					// Make AtoD driver sample as fast as possible
+
+					SendMessage(GoAtoDfastActive, ATOD_DRIVER_SM_ID);
+					StartTimer(ATOD_RFRSH); // Time to Refresh AtoD
+
+				return MCM_RVRSE_NUDGING;
+			}
+
+			// just get ready for the next command
+
+			LogMotorMoveDone;
+
+			goto alreadyInNudgeTarget;
 		}
 
-		UpdateMinReverseMove();
+		// Target Out of Range
 
-		if(targetPosition < minValidMove) {
+		LogTargetRangeErr;
 
-				SetAtoDsamplingRate(FAST_SAMPLING_RATE);
-				StartTimer(FUDGE_MOTOR_ON_TIME);
-				TurnMotorReverse;
-				LatchReverseBit();
 
-			return MCM_RVRSE_FUDGING;
-		}
+alreadyInNudgeTarget:
+
+	SendMessage(MotorMoveDone,PCUMNGR_SM_ID);
 
 	return SAME_STATE;
 }
@@ -366,15 +516,15 @@ BYTE	MCM_exitF(void)
 
 //////////////////////////////////////////////////
 //
-// TimeOut, while in Forward Fudging
+// TimeOut, while in Forward Nudging
 //
 //////////////////////////////////////////////////
 
 BYTE	MCM_exitG(void)
 {
-		StartTimer(FUDGE_SAMPLE_WAIT);
-
 		TurnMotorOff;
+
+		StartTimer(NUDGE_SAMPLE_WAIT);
 
 	return MCM_FRWRD_SAMPLING;
 }
@@ -382,38 +532,75 @@ BYTE	MCM_exitG(void)
 
 //////////////////////////////////////////////////
 //
-// TimeOut, while in Forward Sampling
+// TimeOut, while in Forward Nudge Sampling
 //
 //////////////////////////////////////////////////
 
 BYTE	MCM_exitH(void)
 {
-		if(targetPosition >= GetCurrPosition()) {
+			if(GetCurrPosition() >= targetPosition) {
 
-			SetAtoDsamplingRate(NORMAL_SAMPLING_RATE);
+				// Forward Target Reached
 
-			return MCM_IDLE;
-		}
+				LogMotorMoveDone;
 
-		StartTimer(FUDGE_MOTOR_ON_TIME);
+				goto frwrdNudgeDone;
+			}
 
-		TurnMotorForward;
+			if(IsInMaxHardwareLimit()) {
 
-	return MCM_FRWRD_FUDGING;
+				LogHWlimitStall;
+
+				goto frwrdNudgeDone;
+			}
+
+			if(PosChangedForward()) {
+
+				ResetTimeOutTimer;
+
+				UpdateMinForwardMove();
+
+			} else {
+
+				IncrementTimeOutTimer;
+
+				if(timeOutTimer == MAX_NUDGE_COUNT)
+				{
+					LogStall;	// Motor failed to move
+								// after several nudges
+
+					goto frwrdNudgeDone;
+				}
+			}
+
+		// Forward Nudge some more
+
+		TurnOnForwardPower();
+		StartTimer(nudgeOnTime);
+
+	return MCM_FRWRD_NUDGING;
+
+
+frwrdNudgeDone:
+
+		StartTimer(POSITION_SETTLE_TIMEOUT);
+
+	return MCM_POSITION_SETTLE;
 }
 
 
 //////////////////////////////////////////////////
 //
-// TimeOut, while in Reverse Fudging
+// TimeOut, while in Reverse Nudging
 //
 //////////////////////////////////////////////////
 
 BYTE	MCM_exitI(void)
-{
-		StartTimer(FUDGE_SAMPLE_WAIT);
 
+{
 		TurnMotorOff;
+
+		StartTimer(NUDGE_SAMPLE_WAIT);
 
 	return MCM_RVRSE_SAMPLING;
 }
@@ -421,24 +608,60 @@ BYTE	MCM_exitI(void)
 
 //////////////////////////////////////////////////
 //
-// TimeOut, while in Reverse Sampling
+// TimeOut, while in Reverse Nudge Sampling
 //
 //////////////////////////////////////////////////
 
 BYTE	MCM_exitJ(void)
 {
-		if(targetPosition <= GetCurrPosition()) {
+			if(GetCurrPosition() <= targetPosition) {
 
-			SetAtoDsamplingRate(NORMAL_SAMPLING_RATE);
+				// Reverse Target Reached
 
-			return MCM_IDLE;
-		}
+				LogMotorMoveDone;
 
-		StartTimer(FUDGE_MOTOR_ON_TIME);
+				goto rvrsNudgeDone;
+			}
 
-		TurnMotorReverse;
+			if(IsInMinHardwareLimit()) {
 
-	return MCM_RVRSE_FUDGING;
+					LogHWlimitStall;
+
+				goto rvrsNudgeDone;
+			}
+
+			if(PosChangedReverse()) {
+
+				ResetTimeOutTimer;
+
+				UpdateMinReverseMove();
+
+			} else {
+
+				IncrementTimeOutTimer;
+
+				if(timeOutTimer == MAX_NUDGE_COUNT)
+				{
+					LogStall;	// Motor failed to move
+								// after several nudges
+
+					goto rvrsNudgeDone;
+				}
+			}
+
+		// Reverse Nudge some more
+
+		TurnOnReversePower();
+		StartTimer(nudgeOnTime);
+
+	return MCM_RVRSE_NUDGING;
+
+
+rvrsNudgeDone:
+
+		StartTimer(POSITION_SETTLE_TIMEOUT);
+
+	return MCM_POSITION_SETTLE;
 }
 
 
@@ -453,10 +676,151 @@ BYTE	MCM_exitK(void)
 		SendMessage(MotorMoveDone,PCUMNGR_SM_ID);
 		SetAtoDsamplingRate(NORMAL_SAMPLING_RATE);
 
-		LogMotorMoveDone;
+	return	MCM_IDLE;
+}
+
+
+//////////////////////////////////////////////////
+//
+// MotorNudgeUp, while in Idle
+//
+//////////////////////////////////////////////////
+
+BYTE	MCM_exitL(void)
+{
+	if(nudgeOnTime != 0) {
+
+		StartTimer(1);	// Expire Timer
+
+		return	MCM_EXPIR_UP_TIMER;
+	}
+
+	return SAME_STATE;
+}
+
+
+//////////////////////////////////////////////////
+//
+// MotorNudgeDown, while in Idle
+//
+//////////////////////////////////////////////////
+
+BYTE	MCM_exitM(void)
+{
+	if(nudgeOnTime != 0) {
+
+		StartTimer(1);	// Expire Timer
+
+		return	MCM_EXPIR_DN_TIMER;
+	}
+
+	return SAME_STATE;
+}
+
+
+//////////////////////////////////////////////////
+//
+// TimeOut, while in Nudge Settling
+//
+//////////////////////////////////////////////////
+
+BYTE	MCM_exitN(void)
+{
+	TurnMotorOff;
+
+		if(nudgeCount != 0)
+		{
+			nudgeCount--;
+
+			if(LAST_DIR_FORWARD)
+				SendMessage(MotorNudgeUp,THIS_SM);
+			else
+				SendMessage(MotorNudgeDown,THIS_SM);
+		}
 
 	return	MCM_IDLE;
 }
+
+
+//////////////////////////////////////////////////
+//
+// Motor GoIdle, while in several states
+//
+//////////////////////////////////////////////////
+
+BYTE	MCM_exitO(void)
+{
+		TurnMotorOff;
+
+		StartTimer(POSITION_SETTLE_TIMEOUT);
+
+	return MCM_POSITION_SETTLE;
+}
+
+
+//////////////////////////////////////////////////
+//
+// TimeOut, while waiting for nudge up timer
+// to expire
+//
+//////////////////////////////////////////////////
+
+BYTE	MCM_exitP(void)
+{
+		TurnOnForwardPower();
+
+		StartTimer(nudgeOnTime);
+
+	return	MCM_NUDGE_SETTLE;
+}
+
+
+//////////////////////////////////////////////////
+//
+// TimeOut, while waiting for nudge down timer
+// to expire
+//
+//////////////////////////////////////////////////
+
+BYTE	MCM_exitQ(void)
+{
+		TurnOnReversePower();
+
+		StartTimer(nudgeOnTime);
+
+	return	MCM_NUDGE_SETTLE;
+}
+
+
+//////////////////////////////////////////////////
+//
+// TimeOut, in Reverse Settle
+//
+//////////////////////////////////////////////////
+
+BYTE	MCM_exitR(void)
+{
+		if(GetCurrPosition() < originalTarget) {
+
+			// Major Move over shot, do not nudge
+
+			SendMessage(MotorMoveDone,PCUMNGR_SM_ID);
+
+		} else {
+
+			// Restore original target then
+			// Nudge to that as the final position
+
+			targetPosition = originalTarget;
+
+			SendMessage(NudgeToTarget,THIS_SM);
+		}
+
+	return	MCM_IDLE;
+}
+
+
+
 
 //////////////////////////////////////////////////
 //
@@ -465,52 +829,17 @@ BYTE	MCM_exitK(void)
 //////////////////////////////////////////////////
 
 
-void	LatchForwardBit(void) {
-
-	SystemStatus.MOTOR_FORWARD = TRUE;
-	SystemStatus.MOTOR_REVERSE = FALSE;
-}
 
 
-void	LatchReverseBit(void) {
-
-	SystemStatus.MOTOR_FORWARD = FALSE;
-	SystemStatus.MOTOR_REVERSE = TRUE;
-}
-
-
-BYTE	GetMotorStatus(void) {
-
-	return motorStatus;
-}
 
 //////////////////////////////////////////////////
 //
+// A check to see if the position limits have
+// already been defined. Motor moves will be
+// prevented by the manager if the limits are
+// not set.
 //
 //////////////////////////////////////////////////
-
-void	UpdateMinForwardMove(void) {
-
-	minValidMove = GetCurrPosition() + minMove;
-
-	if(minValidMove > maxPosition)
-		minValidMove = maxPosition;
-}
-
-//////////////////////////////////////////////////
-//
-//
-//////////////////////////////////////////////////
-
-void	UpdateMinReverseMove(void) {
-
-	minValidMove = GetCurrPosition() - minMove;
-
-	if( (minValidMove > MAX_ATOD_POS) // OverFlow ?
-	   ||(minValidMove < minPosition))
-		minValidMove = minPosition;
-}
-
 
 BOOL	IsPositionLimitSet(void) {
 
@@ -522,18 +851,49 @@ BOOL	IsPositionLimitSet(void) {
 }
 
 
+//////////////////////////////////////////////////
+//
+// A check to determine if current target is
+// valid.
+//
+//////////////////////////////////////////////////
 
-BOOL	PosChangedForward(void) {
-
-	return (GetCurrPosition() > minValidMove) ?
-		TRUE : FALSE;
+BOOL	IsTargetWithinLimits(void)
+{
+	return ((targetPosition <= maxPosition)
+			&&(targetPosition >= minPosition)) ?
+				TRUE : FALSE ;
 }
 
 
-BOOL	PosChangedReverse(void) {
 
-	return (GetCurrPosition() < minValidMove) ?
-		TRUE : FALSE;
+//////////////////////////////////////////////////
+//
+// Returns the valid minimum
+// Forward move position
+//
+//////////////////////////////////////////////////
+
+WORD	GetMinForwardMove(void) {
+
+		UpdateMinForwardMove();
+
+	return minValidMove;
+}
+
+
+//////////////////////////////////////////////////
+//
+// Returns the valid minimum
+// Reverse move position
+//
+//////////////////////////////////////////////////
+
+WORD	GetMinReverseMove(void) {
+
+		UpdateMinReverseMove();
+
+	return minValidMove;
 }
 
 
@@ -550,18 +910,21 @@ _MOTORCONTROLLER:
 	fdb		xMCM_FRWRD_MOVING_MATRIX
 	fdb		xMCM_FRWRD_COASTING_MATRIX
 	fdb		xMCM_RVRSE_MOVING_MATRIX
-	fdb		xMCM_RVRSE_COSTING_MATRIX
+	fdb		xMCM_RVRSE_COASTING_MATRIX
+	fdb		xMCM_INMOV_SETTLE_MATRIX
 	fdb		xMCM_POSITION_SETTLE_MATRIX
-	fdb		xMCM_FRWRD_FUDGING_MATRIX
+	fdb		xMCM_FRWRD_NUDGING_MATRIX
 	fdb		xMCM_FRWRD_SAMPLING_MATRIX
-	fdb		xMCM_RVRSE_FUDGING_MATRIX
+	fdb		xMCM_RVRSE_NUDGING_MATRIX
 	fdb		xMCM_RVRSE_SAMPLING_MATRIX
+	fdb		xMCM_NUDGE_SETTLE_MATRIX
+	fdb		xMCM_EXPIR_UP_TIMER_MATRIX
+	fdb		xMCM_EXPIR_DN_TIMER_MATRIX
 #endasm
 
 
 //////////////////////////////////////////////////
-//
-// Message/Exit Function Matrix Table	
+//// Message/Exit Function Matrix Table
 //
 //////////////////////////////////////////////////
 
@@ -569,8 +932,12 @@ _MOTORCONTROLLER:
 xMCM_IDLE_MATRIX:
 	fcb		MoveToTarget
 	fdb		MCM_exitA
-	fcb		FudgeToTarget
+	fcb		NudgeToTarget
 	fdb		MCM_exitF
+	fcb		MotorNudgeUp
+	fdb		MCM_exitL
+	fcb		MotorNudgeDown
+	fdb		MCM_exitM
 	fcb		NULL_MESSAGE
 #endasm
 
@@ -578,6 +945,8 @@ xMCM_IDLE_MATRIX:
 xMCM_FRWRD_MOVING_MATRIX:
 	fcb		TimeOut
 	fdb		MCM_exitB
+	fcb		MotorGoIdle
+	fdb		MCM_exitO
 	fcb     NULL_MESSAGE
 #endasm
 
@@ -585,6 +954,8 @@ xMCM_FRWRD_MOVING_MATRIX:
 xMCM_FRWRD_COASTING_MATRIX:
 	fcb		TimeOut
 	fdb		MCM_exitC
+	fcb		MotorGoIdle
+	fdb		MCM_exitO
 	fcb     NULL_MESSAGE
 #endasm
 
@@ -592,6 +963,8 @@ xMCM_FRWRD_COASTING_MATRIX:
 xMCM_RVRSE_MOVING_MATRIX:
 	fcb		TimeOut
 	fdb		MCM_exitD
+	fcb		MotorGoIdle
+	fdb		MCM_exitO
 	fcb     NULL_MESSAGE
 #endasm
 
@@ -599,6 +972,17 @@ xMCM_RVRSE_MOVING_MATRIX:
 xMCM_RVRSE_COASTING_MATRIX:
 	fcb		TimeOut
 	fdb		MCM_exitE
+	fcb		MotorGoIdle
+	fdb		MCM_exitO
+	fcb     NULL_MESSAGE
+#endasm
+
+#asm
+xMCM_INMOV_SETTLE_MATRIX:
+	fcb		TimeOut
+	fdb		MCM_exitR
+	fcb		MotorGoIdle
+	fdb		MCM_exitO
 	fcb     NULL_MESSAGE
 #endasm
 
@@ -610,9 +994,11 @@ xMCM_POSITION_SETTLE_MATRIX
 #endasm
 
 #asm
-xMCM_FRWRD_FUDGING_MATRIX:
+xMCM_FRWRD_NUDGING_MATRIX:
 	fcb		TimeOut
 	fdb		MCM_exitG
+	fcb		MotorGoIdle
+	fdb		MCM_exitO
 	fcb     NULL_MESSAGE
 #endasm
 
@@ -620,13 +1006,17 @@ xMCM_FRWRD_FUDGING_MATRIX:
 xMCM_FRWRD_SAMPLING_MATRIX
 	fcb		TimeOut
 	fdb		MCM_exitH
+	fcb		MotorGoIdle
+	fdb		MCM_exitO
 	fcb     NULL_MESSAGE
 #endasm
 
 #asm
-xMCM_RVRSE_FUDGING_MATRIX:
+xMCM_RVRSE_NUDGING_MATRIX:
 	fcb		TimeOut
 	fdb		MCM_exitI
+	fcb		MotorGoIdle
+	fdb		MCM_exitO
 	fcb     NULL_MESSAGE
 #endasm
 
@@ -634,8 +1024,32 @@ xMCM_RVRSE_FUDGING_MATRIX:
 xMCM_RVRSE_SAMPLING_MATRIX
 	fcb		TimeOut
 	fdb		MCM_exitJ
+	fcb		MotorGoIdle
+	fdb		MCM_exitO
 	fcb     NULL_MESSAGE
 #endasm
 
+#asm
+xMCM_NUDGE_SETTLE_MATRIX
+	fcb		TimeOut
+	fdb		MCM_exitN
+	fcb		MotorGoIdle
+	fdb		MCM_exitO
+	fcb     NULL_MESSAGE
+#endasm
+
+#asm
+xMCM_EXPIR_UP_TIMER_MATRIX
+	fcb		TimeOut
+	fdb		MCM_exitP
+	fcb     NULL_MESSAGE
+#endasm
+
+#asm
+xMCM_EXPIR_DN_TIMER_MATRIX
+	fcb		TimeOut
+	fdb		MCM_exitQ
+	fcb     NULL_MESSAGE
+#endasm
 
 
