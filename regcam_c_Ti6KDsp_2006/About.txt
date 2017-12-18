@@ -1,0 +1,8 @@
+Project Register Intelligent Camera Embedded Module from Vision Components
+Written in C
+For the TI 6K DSP
+Date 2006-2019
+
+Legacy code for demonstartion purposes only.
+Support files such as headers/linkers/library files etc., are not included.
+Compilers, assemblers may no longer be available.

@@ -1,0 +1,184 @@
+
+
+
+
+
+//
+//
+//
+//  Author :    Paul Calinawan
+//
+//  Date:       June 27, 2006
+//
+//  Copyrights: Imaging Technologies Inc.
+//
+//  Product:    Intelli-Ribbon Control
+//  
+//  Subsystem:  Camera System
+//  -------------------------------------------
+//
+//
+//      CONFIDENTIAL DOCUMENT
+//
+//      Property of Imaging Technologies Inc.
+//
+//
+
+
+
+////////////////////////////////////////////////////////////////////
+
+#include <vcrt.h>
+#include <vclib.h>
+#include <macros.h>
+#include <sysvar.h>
+
+
+////////////////////////////////////////////////////////////////////
+
+
+#include "itechsys.h"
+
+
+////////////////////////////////////////////////////////////////////
+
+
+#include "kernel.h"
+
+
+////////////////////////////////////////////////////////////////////
+
+
+#include "datatransmitter.h"
+
+#include "markrecognitionhandler.h"
+
+#include "tcpcomm.h"
+
+#include "scannermanager.h"
+
+#include "spicomm.h"
+
+#include "imageacquirerhandler.h"
+
+
+////////////////////////////////////////////////////////////////////
+//
+//  Local StateMachine Variables
+//
+////////////////////////////////////////////////////////////////////
+
+
+extern CAMERA_CONTROL_STATUS               cameraControlStatus;
+
+
+
+///////////////////////////////////////////////////////////////////
+//
+// Function prototypes
+//
+////////////////////////////////////////////////////////////////////
+
+
+
+////////////////////////////////////////////////////////////////////
+//
+// Initialize Machine
+//
+////////////////////////////////////////////////////////////////////
+
+// void    Init_DataTransmitter(void)
+// {
+//     ADDRESS cameraControlStatusMessagePtr;
+//
+//     cameraControlStatusMessagePtr =
+//     VC_MALLOC_DRAM_BYTE(sizeof(ITECH_TCP_MESSAGE));
+//
+//     if ( cameraControlStatusMessagePtr < 0L )
+//     {
+//         cameraControlStatusMessage = NULL;
+//
+//         print("ALLOCATION ERROR Init_DataTransmitter\n");
+//     }
+//     else
+//     {
+//         cameraControlStatusMessage =
+//         (ITECH_TCP_MESSAGE *)cameraControlStatusMessagePtr;
+//     }
+//
+//     // TODO
+//     // VC_FREE_DRAM_WORD;
+//     // All allocated memory
+//
+// }
+
+////////////////////////////////////////////////////////////////////
+//
+// Exit Procedures
+//
+////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////
+//
+// GoActive
+//
+////////////////////////////////////////////////////////////////////
+
+NEW_STATE   DTX_exitA(void)
+{
+    //print("DTX ACTIVE\n");
+
+    return DTX_ACTIVE;
+}
+
+////////////////////////////////////////////////////////////////////
+//
+// SendCameraControlStatus
+//  while in DTX_ACTIVE
+//
+////////////////////////////////////////////////////////////////////
+
+NEW_STATE   DTX_exitB(void)
+{
+    CameraControlMessage();
+    return DTX_ACTIVE;
+}
+
+////////////////////////////////////////////////////////////////////
+//
+// State Matrix Tables
+//
+////////////////////////////////////////////////////////////////////
+
+STATE_TRANSITION_MATRIX(_DTX_IDLE)
+EV_HANDLER(GoActive, DTX_exitA)
+STATE_TRANSITION_MATRIX_END;
+
+
+STATE_TRANSITION_MATRIX(_DTX_ACTIVE)
+EV_HANDLER(SendCameraControlStatus, DTX_exitB)
+STATE_TRANSITION_MATRIX_END;
+
+
+// 
+// VERY IMPORTANT : 
+//      State Entry definition order MUST match the 
+//      order of the state definition in the .H File 
+//
+//
+//      This the State Machine Response Entry
+//
+
+SM_RESPONSE_ENTRY(DTX_Main_Entry)
+STATE(_DTX_IDLE)            ,           
+STATE(_DTX_ACTIVE)   
+SM_RESPONSE_END
+
+
+////////////////////////////////////////////////////////////////////
+//
+// Utility functions
+//
+////////////////////////////////////////////////////////////////////
+
+
