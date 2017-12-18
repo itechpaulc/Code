@@ -8,7 +8,7 @@
 //    $Log:         $
 //
 //
-//    Author : Paul Calinawan        January 1998
+//    Author : Paul Calinawan        March 1998
 //
 //
 /////////////////////////////////////////////////////////////////////////////
@@ -27,7 +27,7 @@
 
 
 
-#include "yatimer.h"
+#include "mftimer.h"
 
 
 
@@ -35,7 +35,7 @@
 //////////////////////////////////////////////////
 //////////////////////////////////////////////////
 //
-//  YAxisTimer
+//  MeasurementFlashTimer
 //
 //////////////////////////////////////////////////
 //////////////////////////////////////////////////
@@ -43,7 +43,7 @@
 //////////////////////////////////////////////////
 //////////////////////////////////////////////////
 //
-//  YAxisTimer
+//  HeadMachinesManager
 //
 //      - public interface functions :
 //
@@ -58,9 +58,9 @@
 //////////////////////////////////////////////////
 
 void
-YAxisTimer::SetYAxisTimeOut(WORD yTimeOut)
+MeasurementFlashTimer::SetMeasurementFlashTimeOut(WORD xTimeOut)
 {
-    yAxisTimeOut = yTimeOut;
+    measurementFlashTimeOut = xTimeOut;
 }
 
 //////////////////////////////////////////////////
@@ -70,16 +70,16 @@ YAxisTimer::SetYAxisTimeOut(WORD yTimeOut)
 //////////////////////////////////////////////////
 
 BOOL
-YAxisTimer::IsYAxisTimerExpired(void)
+MeasurementFlashTimer::IsMeasurementFlashTimerExpired(void)
 {
-    return  yAxisTimerExpired;
+    return  measurementFlashTimerExpired;
 }
 
 
 //////////////////////////////////////////////////
 //////////////////////////////////////////////////
 //
-// YAxisTimer - private helper functions
+// MeasurementFlashTimer - private helper functions
 //
 //////////////////////////////////////////////////
 //////////////////////////////////////////////////
@@ -89,7 +89,7 @@ YAxisTimer::IsYAxisTimerExpired(void)
 
 //////////////////////////////////////////////////
 //
-// YAxisTimer - RESPONSE ENTRIES
+// MeasurementFlashTimer - RESPONSE ENTRIES
 //
 //////////////////////////////////////////////////
 
@@ -99,13 +99,13 @@ YAxisTimer::IsYAxisTimerExpired(void)
 //
 //////////////////////////////////////////////////
 
-STATE_TRANSITION_MATRIX(YAxisTimer, _YAT_IDLE)
-    EV_HANDLER(StartYAxisTimer, YAT_h1)
+STATE_TRANSITION_MATRIX(MeasurementFlashTimer, _MFT_IDLE)
+    EV_HANDLER(StartMeasurementFlashTimer, MFT_h1)
 STATE_TRANSITION_MATRIX_END;
 
-STATE_TRANSITION_MATRIX(YAxisTimer, _YAT_WAITING_FOR_Y_TIMER_TO_EXPIRE)
-    EV_HANDLER(TimeOut, YAT_h2),
-    EV_HANDLER(CancelYAxisTimer, YAT_h3)
+STATE_TRANSITION_MATRIX(MeasurementFlashTimer, _MFT_WAITING_FOR_X_TIMER_TO_EXPIRE)
+    EV_HANDLER(TimeOut, MFT_h2),
+    EV_HANDLER(CancelMeasurementFlashTimer, MFT_h3)
 STATE_TRANSITION_MATRIX_END;
 
 
@@ -116,9 +116,9 @@ STATE_TRANSITION_MATRIX_END;
 //
 //////////////////////////////////////////////////
 
-DEFINE_RESPONSE_TABLE_ENTRY(YAxisTimer)
-    STATE_MATRIX_ENTRY(_YAT_IDLE),
-    STATE_MATRIX_ENTRY(_YAT_WAITING_FOR_Y_TIMER_TO_EXPIRE)
+DEFINE_RESPONSE_TABLE_ENTRY(MeasurementFlashTimer)
+    STATE_MATRIX_ENTRY(_MFT_IDLE),
+    STATE_MATRIX_ENTRY(_MFT_WAITING_FOR_X_TIMER_TO_EXPIRE)
 RESPONSE_TABLE_END;
 
 
@@ -128,34 +128,34 @@ RESPONSE_TABLE_END;
 //
 //////////////////////////////////////////////////
 
-WORD    YAxisTimer::yAxisTimeOut = 0x0000;
+WORD    MeasurementFlashTimer::measurementFlashTimeOut = 0x0000;
 
-BOOL    YAxisTimer::yAxisTimerExpired = TRUE;
+BOOL    MeasurementFlashTimer::measurementFlashTimerExpired = TRUE;
 
-WORD    YAxisTimer::errorCount = 0;
+WORD    MeasurementFlashTimer::errorCount = 0;
 
 
 
 //////////////////////////////////////////////////
 //
-// YAxisTimer - Constructors, Destructors
+// MeasurementFlashTimer - Constructors, Destructors
 //
 //////////////////////////////////////////////////
 
-YAxisTimer::YAxisTimer(STATE_MACHINE_ID sMsysID)
+MeasurementFlashTimer::MeasurementFlashTimer(STATE_MACHINE_ID sMsysID)
     :StateMachine(sMsysID)
 {
     ASSIGN_RESPONSE_TABLE();
 
-    SetCurrState(YAT_IDLE);
+    SetCurrState(MFT_IDLE);
 }
 
-YAxisTimer::~YAxisTimer(void) { }
+MeasurementFlashTimer::~MeasurementFlashTimer(void) { }
 
 
-WORD    YAxisTimer::GetErrorCount(void) {
+WORD    MeasurementFlashTimer::GetErrorCount(void) {
 
-    return  YAxisTimer::errorCount;
+    return  MeasurementFlashTimer::errorCount;
 }
 
 
@@ -163,45 +163,45 @@ WORD    YAxisTimer::GetErrorCount(void) {
 //////////////////////////////////////////////////
 //////////////////////////////////////////////////
 //
-// YAxisTimer - private EXIT PROCEDURES
+// MeasurementFlashTimer - private EXIT PROCEDURES
 //
 //////////////////////////////////////////////////
 //////////////////////////////////////////////////
 
 //////////////////////////////////////////////////
 //
-// Message: Start Y Axis Timer
+// Message: Start X Axis Timer
 //
 // IMPORTANT: This message overrides the
-//            current value of yAxisTimeOut
+//            current value of measurementFlashTimeOut
 //
 //////////////////////////////////////////////////
 
 WORD
-YAxisTimer::YAT_h1(void) {
+MeasurementFlashTimer::MFT_h1(void) {
 
     // Get the data from the message
 
-    yAxisTimeOut = (WORD)(GetCurrEvent().msgData1);
+    measurementFlashTimeOut = (WORD)(GetCurrEvent().msgData1);
 
         // Make sure timeout has value
 
-        if(yAxisTimeOut != 0)
+        if(measurementFlashTimeOut != 0)
         {
-                StartHiPriorityTimer(MSEC(yAxisTimeOut));
+               StartHiPriorityTimer(MSEC(measurementFlashTimeOut));
 
-                yAxisTimerExpired = FALSE;
+                measurementFlashTimerExpired = FALSE;
 
-            return  YAT_WAITING_FOR_Y_TIMER_TO_EXPIRE;
+            return  MFT_WAITING_FOR_X_TIMER_TO_EXPIRE;
         }
 
-        yAxisTimerExpired = TRUE;
+        measurementFlashTimerExpired = TRUE;
 
         // Send Expired Message to MTRC
 
-        SendHiPrMsg(MotorCommID, YAxisTimerExpired);
+        SendHiPrMsg(HeadMachinesManagerID, MeasurementFlashTimerExpired);
 
-    return  YAT_IDLE;
+    return  MFT_IDLE;
 }
 
 
@@ -212,35 +212,33 @@ YAxisTimer::YAT_h1(void) {
 //////////////////////////////////////////////////
 
 WORD
-YAxisTimer::YAT_h2(void) {
+MeasurementFlashTimer::MFT_h2(void) {
 
-        yAxisTimerExpired = TRUE;
+        measurementFlashTimerExpired = TRUE;
 
         // Send Expired Message to MTRC
 
-        SendHiPrMsg(MotorCommID, YAxisTimerExpired);
+        SendHiPrMsg(HeadMachinesManagerID, MeasurementFlashTimerExpired);
 
-    return  YAT_IDLE;
+    return  MFT_IDLE;
 }
 
 
 //////////////////////////////////////////////////
 //
-//  Message : Cancel Y Axis Timer
+//  Message : Cancel X Axis Timer
 //
 //////////////////////////////////////////////////
 
 WORD
-YAxisTimer::YAT_h3(void)
+MeasurementFlashTimer::MFT_h3(void)
 {
-        yAxisTimerExpired = TRUE;
+        measurementFlashTimerExpired = TRUE;
 
         CancelTimer();
 
-    return  YAT_IDLE;
+    return  MFT_IDLE;
 }
-
-
 
 
 

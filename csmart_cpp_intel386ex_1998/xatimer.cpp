@@ -26,7 +26,9 @@
 
 
 
+
 #include "xatimer.h"
+
 
 
 
@@ -140,7 +142,7 @@ WORD    XAxisTimer::errorCount = 0;
 //
 //////////////////////////////////////////////////
 
-XAxisTimer::XAxisTimer(BYTE sMsysID)
+XAxisTimer::XAxisTimer(STATE_MACHINE_ID sMsysID)
     :StateMachine(sMsysID)
 {
     ASSIGN_RESPONSE_TABLE();
@@ -169,6 +171,9 @@ WORD    XAxisTimer::GetErrorCount(void) {
 //////////////////////////////////////////////////
 //
 // Message: Start X Axis Timer
+//
+// IMPORTANT: This message overrides the
+//            current value of xAxisTimeOut
 //
 //////////////////////////////////////////////////
 
@@ -234,5 +239,7 @@ XAxisTimer::XAT_h3(void)
 
     return  XAT_IDLE;
 }
+
+
 
 

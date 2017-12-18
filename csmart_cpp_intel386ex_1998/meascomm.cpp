@@ -27,6 +27,14 @@
 
 #include "meascomm.h"
 
+#include "80386ex.h"
+
+
+#include <string.h>
+
+#pragma _builtin_(memcpy)
+
+
 
 //////////////////////////////////////////////////
 //////////////////////////////////////////////////
@@ -60,9 +68,11 @@ MeasurementCommMachine::GetScanMeasurementData(void)
 //////////////////////////////////////////////////
 
 void
-MeasurementCommMachine::EnableMeasurementDMA(void)
+MeasurementCommMachine::enableMeasurementReception(void)
 {
+    // Enable the Kernel's SSIO/DMA functions
 
+    EnableMeasurementDataReception();
 }
 
 //////////////////////////////////////////////////
@@ -72,9 +82,11 @@ MeasurementCommMachine::EnableMeasurementDMA(void)
 //////////////////////////////////////////////////
 
 void
-MeasurementCommMachine::DisableMeasurementDMA(void)
+MeasurementCommMachine::disableMeasurementReception(void)
 {
+    // Disable the Kernel's SSIO/DMA functions
 
+    DisableMeasurementDataReception();
 }
 
 
@@ -98,7 +110,7 @@ STATE_TRANSITION_MATRIX(MeasurementCommMachine, _MCM_IDLE)
 STATE_TRANSITION_MATRIX_END;
 
 STATE_TRANSITION_MATRIX(MeasurementCommMachine, _MCM_WAITING_FOR_MEASUREMENT_BLOCK)
-    EV_HANDLER(MeasurmentBlockReceived, MCM_h2)
+    EV_HANDLER(MeasurementBlockReceived, MCM_h2)
 STATE_TRANSITION_MATRIX_END;
 
 
@@ -135,7 +147,7 @@ WORD    MeasurementCommMachine::errorCount = 0;
 //
 //////////////////////////////////////////////////
 
-MeasurementCommMachine::MeasurementCommMachine(BYTE sMsysID)
+MeasurementCommMachine::MeasurementCommMachine(STATE_MACHINE_ID sMsysID)
     :StateMachine(sMsysID)
 {
     ASSIGN_RESPONSE_TABLE();
@@ -164,29 +176,48 @@ WORD    MeasurementCommMachine::GetErrorCount(void) {
 
 //////////////////////////////////////////////////
 //
-//
+// Message : Wait For Measurement Block
 //
 //////////////////////////////////////////////////
 
 WORD
 MeasurementCommMachine::MCM_h1(void)
 {
+        enableMeasurementReception();
 
     return  MCM_WAITING_FOR_MEASUREMENT_BLOCK;
 }
 
 //////////////////////////////////////////////////
 //
-//
+// Message : Measurement Block Received
 //
 //////////////////////////////////////////////////
 
 WORD
 MeasurementCommMachine::MCM_h2(void)
 {
+        disableMeasurementReception();
+
+        // Create a new pointer (casted), pointing to
+        // the data just received by the Kernel
+
+        SCAN_MEASUREMENT_DATA *ptrKernelMeasurementData =
+            (SCAN_MEASUREMENT_DATA *)GetMeasurementBuffer();
+
+        // Update MCM's local copy using the measurement
+        // the data received by the Kernel
+
+        memcpy(&currScanMeasurementData, ptrKernelMeasurementData,
+               sizeof(SCAN_MEASUREMENT_DATA));
+
+        // Tell HMM that there is new measurement data
+
+        SendHiPrMsg(HeadMachinesManagerID, MeasurementBlockReceived);
 
     return  MCM_IDLE;
 }
+
 
 
 

@@ -27,10 +27,11 @@
 
 
 
+
+
 #include "80386ex.h"
 
 #include "ledstat.h"
-
 
 
 
@@ -55,7 +56,7 @@ HeadCmdCommLedStatusMachine::LedOn(void)
 {
     p3Status = GetIO3Latch();           // Read Port 3
 
-    p3Status |= HCC_STATUS_LED_PORT;    // Set LED Port
+    //p3Status |= HCC_STATUS_LED_PORT;    // Set LED Port
 
     SetIO3Latch(p3Status);              // Write to Port
 }
@@ -71,7 +72,7 @@ HeadCmdCommLedStatusMachine::LedOff(void)
 {
     p3Status = GetIO3Latch();           // Read Port 3
 
-    p3Status &= ~HCC_STATUS_LED_PORT;   // Clear LED Port
+    //p3Status &= ~HCC_STATUS_LED_PORT;   // Clear LED Port
 
     SetIO3Latch(p3Status);              // Write to Port
 }
@@ -130,7 +131,7 @@ BYTE    HeadCmdCommLedStatusMachine::p3Status;
 //
 //////////////////////////////////////////////////
 
-HeadCmdCommLedStatusMachine::HeadCmdCommLedStatusMachine(BYTE sMsysID)
+HeadCmdCommLedStatusMachine::HeadCmdCommLedStatusMachine(STATE_MACHINE_ID sMsysID)
     :StateMachine(sMsysID)
 {
     LedOff();
@@ -176,3 +177,6 @@ HeadCmdCommLedStatusMachine::HCC_SLM_h2(void)
 
     return  HCC_SLM_ON;
 }
+
+
+

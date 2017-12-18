@@ -28,35 +28,35 @@
 
 
 #include "kernel.h"
-
-
-
+#include "mtrcomm.h"
+#include "hccomm.h"
+#include "mftimer.h"
+#include "hmmngr.h"
+#include "ledstat.h"
+#include "csmngr.h"
+#include "prxcomm.h"
+#include "ptxcomm.h"
+#include "tblctrl.h"
 #include "xatimer.h"
 #include "yatimer.h"
-#include "mtrcomm.h"
-
-#include "hccomm.h"
 #include "meascomm.h"
-
-
-#include "hdopcoor.h"
-#include "tltimer.h"
-
-#include "hmmngr.h"
-
-
-#include "ledstat.h"
-
-#include "csmngr.h"
-
-
-#include "tblctrl.h"
 #include "spdmngr.h"
+#include "hdopcoor.h"
+#include "tlmngr.h"
+#include "tpdmngr.h"
+#include "mdatmngr.h"
 
 
+
+//////////////////////////////////////////////////
+//
+// Color Smart Boot - Main Entry
+//
+//////////////////////////////////////////////////
 
 void main(void)
 {
+
 
     //////////////////////////////////////////////////
     //
@@ -76,7 +76,6 @@ void main(void)
     InitKernel();
 
 
-
     //////////////////////////////////////////////////
     //
     // Instantiate the state machines
@@ -86,26 +85,28 @@ void main(void)
     //
     //////////////////////////////////////////////////
 
-    XAxisTimer                      XAT(XAxisTimerID);
-    YAxisTimer                      YAT(YAxisTimerID);
+    SysLedStatusMachine             SYS_SLM(SysLedStatusMachineID);
+
     MotorCommMachine                MTRC(MotorCommID);
 
-    HeadCommandCommMachine          HCC(HeadCommandCommID);
-    MeasurementCommMachine          MCM(MeasurementCommMachineID);
 
-    HeadMachinesManager             HMM(HeadMachinesManagerID);
-    TargetLampTimer                 TLT(TargetLampTimerID);
-
-
-    SysLedStatusMachine             SYS_SLM(SysLedStatusMachineID);
     PciLedStatusMachine             PCI_SLM(PciLedStatusMachineID);
     MotorCommLedStatusMachine       MTRC_SLM(MotorCommLedStatusMachineID);
     HeadCmdCommLedStatusMachine     HCC_SLM(HeadCmdCommLedStatusMachineID);
     HeadMeasLedStatusMachine        MCM_SLM(HeadMeasLedStatusMachineID);
 
-    HeadOperationsCoordinator       HOC(HeadOperationsCoordinatorMachineID);
+    XAxisTimer                      XAT(XAxisTimerID);
+    YAxisTimer                      YAT(YAxisTimerID);
 
+    MeasurementFlashTimer           MFT(MeasurementFlashTimerID);
+    HeadCommandCommMachine          HCC(HeadCommandCommID);
+    MeasurementCommMachine          MCM(MeasurementCommMachineID);
+    HeadMachinesManager             HMM(HeadMachinesManagerID);
+    TargetLampManager               TLM(TargetLampManagerID);
+    HeadOperationsCoordinator       HOC(HeadOperationsCoordinatorMachineID);
     ColorSmartManager               CSM(ColorSmartManagerID);
+    PciTxCommMachine                PTC(PciTxCommID);
+    PciRxCommMachine                PRC(PciRxCommID);
 
 
 
@@ -117,8 +118,12 @@ void main(void)
     //////////////////////////////////////////////////
 
     TableControl                    TC;
-    ScanParametersDataManager       SPDM;
 
+
+    ScanParametersDataManager       SPDM;
+    TableParametersDataManager      TPDM;
+    MeasurementDataManager          MDM;
+    ColorSmartSystemMonitor         CSMON;
 
 
     //////////////////////////////////////////////////
@@ -127,25 +132,43 @@ void main(void)
     //
     //////////////////////////////////////////////////
 
-    AddStateMachineToKernel(&XAT);
-    AddStateMachineToKernel(&YAT);
+
     AddStateMachineToKernel(&MTRC);
 
+
     AddStateMachineToKernel(&HCC);
-    AddStateMachineToKernel(&MCM);
-
     AddStateMachineToKernel(&HMM);
-    AddStateMachineToKernel(&TLT);
-
+    AddStateMachineToKernel(&CSM);
     AddStateMachineToKernel(&SYS_SLM);
+
+    AddStateMachineToKernel(&XAT);
+    AddStateMachineToKernel(&YAT);
+    AddStateMachineToKernel(&MCM);
+    AddStateMachineToKernel(&TLM);
+
     AddStateMachineToKernel(&PCI_SLM);
     AddStateMachineToKernel(&MTRC_SLM);
     AddStateMachineToKernel(&HCC_SLM);
     AddStateMachineToKernel(&MCM_SLM);
 
     AddStateMachineToKernel(&HOC);
+    AddStateMachineToKernel(&PTC);
+    AddStateMachineToKernel(&PRC);
+    AddStateMachineToKernel(&MFT);
 
-    AddStateMachineToKernel(&CSM);
+
+    //////////////////////////////////////////////////
+    //
+    // LINK THE MACHINES
+    //
+    //////////////////////////////////////////////////
+
+
+    HMM.LinkAll(&TPDM, &MCM, &MDM, &MTRC, &HCC, &SPDM, &TC, &MFT);
+    CSM.LinkAll(&PTC, &PRC, &HMM, &SPDM, &MDM, &HOC);
+    PRC.LinkAll(&PTC, &CSMON);
+    HCC.LinkAll(&TPDM);
+    MTRC.LinkAll(&TPDM, &XAT, &YAT);
 
 
     //////////////////////////////////////////////////
@@ -155,16 +178,16 @@ void main(void)
     //
     //////////////////////////////////////////////////
 
-    SendHiPrMsg(SysLedStatusMachineID, TimeOut);
-    SendHiPrMsg(PciLedStatusMachineID, TimeOut);
-    //SendHiPrMsg(MotorCommLedStatusMachineID, TimeOut);
-    //SendHiPrMsg(HeadCmdCommLedStatusMachineID, TimeOut);
-    //SendHiPrMsg(HeadMeasLedStatusMachineID, TimeOut);
+    SendLowPrKernelMsg(SysLedStatusMachineID, TimeOut);
+    SendLowPrKernelMsg(PciLedStatusMachineID, TimeOut);
+    SendLowPrKernelMsg(MotorCommLedStatusMachineID, TimeOut);
+    SendLowPrKernelMsg(HeadCmdCommLedStatusMachineID, TimeOut);
+    SendLowPrKernelMsg(HeadMeasLedStatusMachineID, TimeOut);
 
 
     //////////////////////////////////////////////////
     //
-    // Run
+    // Run Color Smart Boot Code
     //
     //////////////////////////////////////////////////
 

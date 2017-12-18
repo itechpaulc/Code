@@ -37,8 +37,9 @@
 // switches during position calibration
 //
 
-#define     X_NEGATIVE_LIMIT   (-1000000000)
-#define     Y_NEGATIVE_LIMIT   (-1000000000)
+#define     X_NEGATIVE_LIMIT   (DWORD)(-1000000000)
+#define     Y_NEGATIVE_LIMIT   (DWORD)(-1000000000)
+
 
 
 //////////////////////////////////////////////////
@@ -49,6 +50,55 @@
 //      - public interface functions :
 //
 //////////////////////////////////////////////////
+//////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void
+MotorCommMachine::LinkAll(TableParametersDataManager *pTPDM,
+                          XAxisTimer *pXAT, YAxisTimer *pYAT) {
+
+    LinkTableParametersDataManager(pTPDM);
+    LinkXAxisTimer(pXAT);
+    LinkYAxisTimer(pYAT);
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void
+MotorCommMachine::LinkTableParametersDataManager(TableParametersDataManager *pTPDM) {
+
+    ptrTPDM = pTPDM;
+}
+
+
+void
+MotorCommMachine::LinkXAxisTimer(XAxisTimer *pXAT) {
+
+    ptrXAT = pXAT;
+}
+
+void
+MotorCommMachine::LinkYAxisTimer(YAxisTimer *pYAT) {
+
+    ptrYAT = pYAT;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
 //////////////////////////////////////////////////
 
 void
@@ -200,7 +250,7 @@ MotorCommMachine::IsYAxisOnTarget(void) {
 //////////////////////////////////////////////////
 
 BOOL
-MotorCommMachine::IsXAxisOnIntermediateTarget(void) {
+MotorCommMachine::isXAxisOnIntermediateTarget(void) {
 
     return  (intermediateXCoordinate == currXCoordinate) ?
         TRUE : FALSE;
@@ -214,7 +264,7 @@ MotorCommMachine::IsXAxisOnIntermediateTarget(void) {
 //////////////////////////////////////////////////
 
 BOOL
-MotorCommMachine::IsYAxisOnIntermediateTarget(void) {
+MotorCommMachine::isYAxisOnIntermediateTarget(void) {
 
     return  (intermediateYCoordinate == currYCoordinate) ?
         TRUE : FALSE;
@@ -357,22 +407,10 @@ MotorCommMachine::GetCurrYMoveProfile(void) {
 //////////////////////////////////////////////////
 
 void
-MotorCommMachine::LinkTableParametersDataManager(TableParametersDataManager *pTPDM) {
+MotorCommMachine::GetLastLimitCoordinates(int &limitX, int &limitY) {
 
-    ptrTPDM = pTPDM;
-}
-
-
-void
-MotorCommMachine::LinkXAxisTimer(XAxisTimer *pXAT) {
-
-    ptrXAT = pXAT;
-}
-
-void
-MotorCommMachine::LinkYAxisTimer(YAxisTimer *pYAT) {
-
-    ptrYAT = pYAT;
+    limitX = lastLimitXCoordinate;
+    limitY = lastLimitYCoordinate;
 }
 
 
@@ -385,6 +423,26 @@ MotorCommMachine::LinkYAxisTimer(YAxisTimer *pYAT) {
 //////////////////////////////////////////////////
 //////////////////////////////////////////////////
 
+
+void
+MotorCommMachine::updateLastXAxisDirection(int nextXCoordinate) {
+
+        if(nextXCoordinate > currXCoordinate)
+            lastXAxisDirection = POSITIVE_AXIS_DIRECTION;
+        else
+            lastXAxisDirection = NEGATIVE_AXIS_DIRECTION;
+}
+
+void
+MotorCommMachine::updateLastYAxisDirection(int nextYCoordinate) {
+
+        if(nextYCoordinate > currYCoordinate)
+            lastYAxisDirection = POSITIVE_AXIS_DIRECTION;
+        else
+            lastYAxisDirection = NEGATIVE_AXIS_DIRECTION;
+}
+
+
 //////////////////////////////////////////////////
 //
 //  MotorCommMachine -
@@ -393,17 +451,7 @@ MotorCommMachine::LinkYAxisTimer(YAxisTimer *pYAT) {
 //
 //////////////////////////////////////////////////
 
-//////////////////////////////////////////////////
-//
-// Port Defines
-//
-//////////////////////////////////////////////////
 
-#define     DATA_WRITE_PORT     0x300
-
-#define     COMMAND_PORT        0x301
-
-#define     DATA_READ_PORT      0x302
 
 
 //////////////////////////////////////////////////
@@ -533,6 +581,70 @@ void    SendMcsChangeProfileCommand(AxisId axisId, MoveProfile & moveProf) {
 
 //////////////////////////////////////////////////
 //
+//
+//
+//////////////////////////////////////////////////
+
+void    SendMcsBreakPointCommand(AxisId axisId, int breakPointCoordinate) {
+
+    if(axisId == X_AXIS)
+    {
+
+    }
+    else
+    {
+
+    }
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void    SendMcsFindLimitCommand(AxisId axisId) {
+
+        if(axisId == X_AXIS)
+        {
+            SendMcsCommand(SET_CURR_AXIS_1); // Set Axis to X
+            SendMcsWordCommand(SET_INTERRUPT_MASK, WORD(NEGATIVE_LIMIT_SWITCH));
+            SendMcsDWordCommand(SET_POSITION, X_NEGATIVE_LIMIT);
+        }
+        else
+        {
+            SendMcsCommand(SET_CURR_AXIS_2); // Set Axis to Y
+            SendMcsWordCommand(SET_INTERRUPT_MASK, WORD(NEGATIVE_LIMIT_SWITCH));
+            SendMcsDWordCommand(SET_POSITION, Y_NEGATIVE_LIMIT);
+        }
+
+    SendMcsCommand(UPDATE_PARAM);
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+int     SendMcsGetAxisCoordinateCommand(AxisId axisId) {
+
+    if(axisId == X_AXIS)
+    {
+        return 0;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+
+
+//////////////////////////////////////////////////
+//
 // MotorCommMachine - RESPONSE ENTRIES
 //
 //////////////////////////////////////////////////
@@ -545,10 +657,23 @@ void    SendMcsChangeProfileCommand(AxisId axisId, MoveProfile & moveProf) {
 //
 //////////////////////////////////////////////////
 
+
 STATE_TRANSITION_MATRIX(MotorCommMachine, _MTRC_IDLE)
     EV_HANDLER(GotoXYTarget, MTRC_h1),
+    EV_HANDLER(GotoXTarget, MTRC_h1a),
+    EV_HANDLER(GotoYTarget, MTRC_h1c),
     EV_HANDLER(FindXLimit, MTRC_h6),
-    EV_HANDLER(FindYLimit, MTRC_h8)
+    EV_HANDLER(FindYLimit, MTRC_h8),
+    EV_HANDLER(StartContinuousMove, MTRC_h23)
+STATE_TRANSITION_MATRIX_END;
+
+
+STATE_TRANSITION_MATRIX(MotorCommMachine, _MTRC_WAIT_X_AXIS_ON_TARGET_2)
+    EV_HANDLER(XAxisOnTarget, MTRC_h1b)
+STATE_TRANSITION_MATRIX_END;
+
+STATE_TRANSITION_MATRIX(MotorCommMachine, _MTRC_WAIT_Y_AXIS_ON_TARGET_2)
+    EV_HANDLER(YAxisOnTarget, MTRC_h1d)
 STATE_TRANSITION_MATRIX_END;
 
 STATE_TRANSITION_MATRIX(MotorCommMachine, _MTRC_WAIT_ANY_AXIS_ON_TARGET)
@@ -598,6 +723,28 @@ STATE_TRANSITION_MATRIX(MotorCommMachine, _MTRC_WAIT_Y_AXIS_TIMER_EXPIRE)
     EV_HANDLER(YAxisTimerExpired, MTRC_h16)
 STATE_TRANSITION_MATRIX_END;
 
+STATE_TRANSITION_MATRIX(MotorCommMachine, _MTRC_WAIT_ANY_AXIS_ON_FINAL_TARGET)
+    EV_HANDLER(XAxisOnTarget, MTRC_h18),
+    EV_HANDLER(YAxisOnTarget, MTRC_h19)
+STATE_TRANSITION_MATRIX_END;
+
+STATE_TRANSITION_MATRIX(MotorCommMachine, _MTRC_WAIT_X_AXIS_ON_FINAL_TARGET)
+    EV_HANDLER(XAxisOnTarget, MTRC_h21)
+STATE_TRANSITION_MATRIX_END;
+
+STATE_TRANSITION_MATRIX(MotorCommMachine, _MTRC_WAIT_Y_AXIS_ON_FINAL_TARGET)
+    EV_HANDLER(YAxisOnTarget, MTRC_h20)
+STATE_TRANSITION_MATRIX_END;
+
+STATE_TRANSITION_MATRIX(MotorCommMachine, _MTRC_MOVING_TO_CONTINUOUS_TARGET_END)
+    EV_HANDLER(AdjustYTarget, MTRC_h24),
+    EV_HANDLER(SetBreakPointX, MTRC_h25),
+    EV_HANDLER(SetBreakPointY, MTRC_h25a),
+    EV_HANDLER(YAxisOnTarget, MTRC_h26),
+    EV_HANDLER(BreakPointTriggered, MTRC_h27),
+    EV_HANDLER(XAxisOnTarget, MTRC_h28)
+STATE_TRANSITION_MATRIX_END;
+
 
 
 //////////////////////////////////////////////////
@@ -608,6 +755,8 @@ STATE_TRANSITION_MATRIX_END;
 
 DEFINE_RESPONSE_TABLE_ENTRY(MotorCommMachine)
     STATE_MATRIX_ENTRY(_MTRC_IDLE),
+    STATE_MATRIX_ENTRY(_MTRC_WAIT_X_AXIS_ON_TARGET_2),
+    STATE_MATRIX_ENTRY(_MTRC_WAIT_X_AXIS_ON_TARGET_2),
     STATE_MATRIX_ENTRY(_MTRC_WAIT_ANY_AXIS_ON_TARGET),
     STATE_MATRIX_ENTRY(_MTRC_WAIT_X_AXIS_ON_TARGET),
     STATE_MATRIX_ENTRY(_MTRC_WAIT_Y_AXIS_ON_TARGET),
@@ -618,7 +767,13 @@ DEFINE_RESPONSE_TABLE_ENTRY(MotorCommMachine)
     STATE_MATRIX_ENTRY(_MTRC_WAIT_Y_AXIS_ON_INTERMEDIATE_TARGET),
     STATE_MATRIX_ENTRY(_MTRC_WAIT_ANY_AXIS_TIMER_EXPIRE),
     STATE_MATRIX_ENTRY(_MTRC_WAIT_X_AXIS_TIMER_EXPIRE),
-    STATE_MATRIX_ENTRY(_MTRC_WAIT_Y_AXIS_TIMER_EXPIRE)
+    STATE_MATRIX_ENTRY(_MTRC_WAIT_Y_AXIS_TIMER_EXPIRE),
+    STATE_MATRIX_ENTRY(_MTRC_WAIT_ANY_AXIS_ON_FINAL_TARGET),
+    STATE_MATRIX_ENTRY(_MTRC_WAIT_X_AXIS_ON_FINAL_TARGET),
+    STATE_MATRIX_ENTRY(_MTRC_WAIT_Y_AXIS_ON_FINAL_TARGET),
+    STATE_MATRIX_ENTRY(_MTRC_WAIT_X_AXIS_ON_TARGET_2),
+    STATE_MATRIX_ENTRY(_MTRC_WAIT_Y_AXIS_ON_TARGET_2),
+    STATE_MATRIX_ENTRY(_MTRC_MOVING_TO_CONTINUOUS_TARGET_END)
 RESPONSE_TABLE_END;
 
 
@@ -629,6 +784,9 @@ RESPONSE_TABLE_END;
 // Static Member Definitions
 //
 //////////////////////////////////////////////////
+
+WORD        MotorCommMachine::errorCount = 0;
+
 
 XAxisTimer  * MotorCommMachine::ptrXAT = 0;
 YAxisTimer  * MotorCommMachine::ptrYAT = 0;
@@ -645,33 +803,43 @@ int         MotorCommMachine::targetYCoordinate;
 int         MotorCommMachine::prevXCoordinate;
 int         MotorCommMachine::prevYCoordinate;
 
-BOOL        MotorCommMachine::backlashCompensationEnabled;
+int         MotorCommMachine::lastLimitXCoordinate;
+int         MotorCommMachine::lastLimitYCoordinate;
+
+
+BOOL            MotorCommMachine::backlashCompensationEnabled;
+AXIS_DIRECTION  MotorCommMachine::lastXAxisDirection;
+AXIS_DIRECTION  MotorCommMachine::lastYAxisDirection;
 
 MoveProfile MotorCommMachine::currXMoveProfile;
 MoveProfile MotorCommMachine::currYMoveProfile;
 
 TableParametersDataManager  * MotorCommMachine::ptrTPDM = 0;
 
-WORD        MotorCommMachine::errorCount = 0;
 
-
-            
 //////////////////////////////////////////////////
 //
 // MotorCommMachine - Constructors, Destructors
 //
 //////////////////////////////////////////////////
 
-MotorCommMachine::MotorCommMachine(BYTE sMsysID)
+MotorCommMachine::MotorCommMachine(STATE_MACHINE_ID sMsysID)
     :StateMachine(sMsysID)
 {
     ASSIGN_RESPONSE_TABLE();
 
     SetCurrState(MTRC_IDLE);
 
+    // Debug
     // Reset Motor Controller Chip
 
 
+    // Read current X Y Coordinates as
+    // seen by the MCS
+
+    // ReSet to this
+    // currXCoordinate, currYCoordinate,
+    // prevXCoordinate, prevYCoordinate,
 
 }
 
@@ -685,6 +853,7 @@ WORD    MotorCommMachine::GetErrorCount(void) {
 
 
 
+
 //////////////////////////////////////////////////
 //////////////////////////////////////////////////
 //
@@ -693,10 +862,16 @@ WORD    MotorCommMachine::GetErrorCount(void) {
 //////////////////////////////////////////////////
 //////////////////////////////////////////////////
 
+//////////////////////////////////////////////////
+//
+// Message: Goto XY Target
+//
+//////////////////////////////////////////////////
+
 WORD
 MotorCommMachine::MTRC_h1(void) {
 
-    // Get the data from the message
+    // Get the data from the message, this is the Final Target Position
 
     targetXCoordinate = (int)(GetCurrEvent().msgData1);
     targetYCoordinate = (int)(GetCurrEvent().msgData2);
@@ -726,15 +901,25 @@ MotorCommMachine::MTRC_h1(void) {
 
         // Check if both axis are already on their intermediate target
 
-        if(IsXAxisOnIntermediateTarget() && IsYAxisOnIntermediateTarget())
+        if(isXAxisOnIntermediateTarget() && isYAxisOnIntermediateTarget())
         {
                 // If so just move to the final targets
 
                 if(!IsXAxisOnTarget())
+                {
                     SendMcsMoveCommand(X_AXIS, targetXCoordinate);
 
+                    // Remember the Axis Direction of this move
+
+                    updateLastXAxisDirection(targetXCoordinate);
+                }
+
                 if(!IsYAxisOnTarget())
+                {
                     SendMcsMoveCommand(Y_AXIS, targetYCoordinate);
+
+                    updateLastYAxisDirection(targetYCoordinate);
+                }
 
             return MTRC_WAIT_ANY_AXIS_ON_FINAL_TARGET;
         }
@@ -742,11 +927,21 @@ MotorCommMachine::MTRC_h1(void) {
         {
                 // Move to the intermediate targets
 
-                if(!IsXAxisOnIntermediateTarget())
+                if(!isXAxisOnIntermediateTarget())
+                {
                     SendMcsMoveCommand(X_AXIS, intermediateXCoordinate);
 
-                if(!IsYAxisOnIntermediateTarget())
+                    // Remember the Axis Direction of this move
+
+                    updateLastXAxisDirection(intermediateXCoordinate);
+                }
+
+                if(!isYAxisOnIntermediateTarget())
+                {
                     SendMcsMoveCommand(Y_AXIS, intermediateYCoordinate);
+
+                    updateLastYAxisDirection(intermediateYCoordinate);
+                }
 
             return MTRC_WAIT_ANY_AXIS_ON_INTERMEDIATE_TARGET;
         }
@@ -756,10 +951,20 @@ MotorCommMachine::MTRC_h1(void) {
             // Determine which axis needs to be moved
 
             if(!IsXAxisOnTarget())
+            {
                 SendMcsMoveCommand(X_AXIS, targetXCoordinate);
 
+                // Remember the Axis Direction of this move
+
+                updateLastXAxisDirection(targetXCoordinate);
+            }
+
             if(!IsYAxisOnTarget())
+            {
                 SendMcsMoveCommand(Y_AXIS, targetYCoordinate);
+
+                updateLastYAxisDirection(targetYCoordinate);
+            }
 
         return  MTRC_WAIT_ANY_AXIS_ON_TARGET;
     }
@@ -843,9 +1048,9 @@ MotorCommMachine::MTRC_h2(void) {
 
         if(IsYAxisOnTarget()) {
 
-            // Both are already on target
+                // Both are already on target
 
-            SendHiPrMsg(HeadMachinesManagerID, XYAxisOnTarget);
+                SendHiPrMsg(HeadMachinesManagerID, XYAxisOnTarget);
 
             return  MTRC_IDLE;
         }
@@ -914,22 +1119,14 @@ MotorCommMachine::MTRC_h5(void) {
 
 //////////////////////////////////////////////////
 //
-//
+// Message: Find X Limit
 //
 //////////////////////////////////////////////////
 
 WORD
 MotorCommMachine::MTRC_h6(void) {
 
-        SendMcsCommand(SET_CURR_AXIS_1); // Set Axis to X
-
-        SendMcsWordCommand(SET_INTERRUPT_MASK, WORD(NEGATIVE_LIMIT_SWITCH));
-
-        SetXTargetCoordinate(X_NEGATIVE_LIMIT);
-
-        SendMcsDWordCommand(SET_POSITION, targetXCoordinate);
-
-        SendMcsCommand(UPDATE_PARAM);
+        SendMcsFindLimitCommand(X_AXIS);
 
     return  MTRC_IDLE;
 }
@@ -944,7 +1141,12 @@ MotorCommMachine::MTRC_h6(void) {
 WORD
 MotorCommMachine::MTRC_h7(void) {
 
-        currXCoordinate = targetXCoordinate;    // Update curr value
+        //
+        // Get X Limit coordinate Update curr value
+        //
+
+        lastLimitXCoordinate =
+        currXCoordinate     = SendMcsGetAxisCoordinateCommand(X_AXIS);
 
         // Pass message to HMM
 
@@ -956,22 +1158,14 @@ MotorCommMachine::MTRC_h7(void) {
 
 //////////////////////////////////////////////////
 //
-//
+// Message: Find Y Limit
 //
 //////////////////////////////////////////////////
 
 WORD
 MotorCommMachine::MTRC_h8(void) {
 
-        SendMcsCommand(SET_CURR_AXIS_2); // Set Axis to Y
-
-        SendMcsWordCommand(SET_INTERRUPT_MASK, WORD(NEGATIVE_LIMIT_SWITCH));
-
-        SetXTargetCoordinate(Y_NEGATIVE_LIMIT);
-
-        SendMcsDWordCommand(SET_POSITION, targetXCoordinate);
-
-        SendMcsCommand(UPDATE_PARAM);
+        SendMcsFindLimitCommand(Y_AXIS);
 
     return  MTRC_IDLE;
 }
@@ -986,7 +1180,12 @@ MotorCommMachine::MTRC_h8(void) {
 WORD
 MotorCommMachine::MTRC_h9(void) {
 
-        currYCoordinate = targetYCoordinate;    // Update curr value
+        //
+        // Get Y Limit coordinate Update curr value
+        //
+
+        lastLimitYCoordinate =
+        currYCoordinate     = SendMcsGetAxisCoordinateCommand(Y_AXIS);
 
         // Pass message to HMM
 
@@ -999,19 +1198,32 @@ MotorCommMachine::MTRC_h9(void) {
 //////////////////////////////////////////////////
 //
 // Message: X Axis On Target
+//          From Intermediate Target
 //
 //////////////////////////////////////////////////
 
 WORD
 MotorCommMachine::MTRC_h10(void) {
 
-        currXCoordinate = intermediateXCoordinate;    // Update curr value
+    WORD    moveSettleDelay;
+
+        currXCoordinate = intermediateXCoordinate;      // Update curr value
+
+        // Check if the Final Move is in the same direction
+        // as the previous move.
+        // PREV_DIR_POSITIVE && NEXT_DIR_POSITIVE // Same ?
+
+        if((currXCoordinate < targetXCoordinate) &&
+            (lastXAxisDirection == POSITIVE_AXIS_DIRECTION))
+                moveSettleDelay =  ptrTPDM->GetForwardBacklashSettleTime();
+        else
+                moveSettleDelay =  ptrTPDM->GetReverseBacklashSettleTime();
 
         // Start a timer for the X axis
 
-        SendHiPrMsg(XAxisTimerID, StartXAxisTimer);
+        SendHiPrMsg(XAxisTimerID, StartXAxisTimer, moveSettleDelay, NULL_MESSAGE_DATA);
 
-        if(IsYAxisOnIntermediateTarget())
+        if(isYAxisOnIntermediateTarget())
         {
             // Both axis are on target
 
@@ -1025,19 +1237,32 @@ MotorCommMachine::MTRC_h10(void) {
 //////////////////////////////////////////////////
 //
 // Message: Y Axis On Target
+//          From Intermediate Target
 //
 //////////////////////////////////////////////////
 
 WORD
 MotorCommMachine::MTRC_h11(void) {
 
+    WORD    moveSettleDelay;
+
         currYCoordinate = intermediateYCoordinate;    // Update curr value
+
+        // Check if the Final Move is in the same direction
+        // as the previous move.
+        // PREV_DIR_POSITIVE && NEXT_DIR_POSITIVE // Same ?
+
+        if((currYCoordinate < targetYCoordinate) &&
+            (lastYAxisDirection == POSITIVE_AXIS_DIRECTION))
+                moveSettleDelay =  ptrTPDM->GetForwardBacklashSettleTime();
+        else
+                moveSettleDelay =  ptrTPDM->GetReverseBacklashSettleTime();
 
         // Start a timer for the Y axis
 
-        SendHiPrMsg(YAxisTimerID, StartYAxisTimer);
+        SendHiPrMsg(YAxisTimerID, StartYAxisTimer, moveSettleDelay, NULL_MESSAGE_DATA);
 
-        if(IsXAxisOnIntermediateTarget())
+        if(isXAxisOnIntermediateTarget())
         {
             // Both axis are on target
 
@@ -1057,6 +1282,8 @@ MotorCommMachine::MTRC_h11(void) {
 WORD
 MotorCommMachine::MTRC_h12(void) {
 
+        currYCoordinate = intermediateYCoordinate;    // Update curr value
+
         // Start a timer for the Y axis
 
         SendHiPrMsg(YAxisTimerID, StartYAxisTimer);
@@ -1073,6 +1300,8 @@ MotorCommMachine::MTRC_h12(void) {
 
 WORD
 MotorCommMachine::MTRC_h13(void) {
+
+        currXCoordinate = intermediateXCoordinate;    // Update curr value
 
         // Start a timer for the Y axis
 
@@ -1189,6 +1418,8 @@ MotorCommMachine::MTRC_h17(void) {
 WORD
 MotorCommMachine::MTRC_h18(void) {
 
+        currXCoordinate = targetXCoordinate;    // Update curr value
+
     return MTRC_WAIT_Y_AXIS_ON_FINAL_TARGET;
 }
 
@@ -1202,8 +1433,11 @@ MotorCommMachine::MTRC_h18(void) {
 WORD
 MotorCommMachine::MTRC_h19(void) {
 
+        currYCoordinate = targetYCoordinate;    // Update curr value
+
     return MTRC_WAIT_X_AXIS_ON_FINAL_TARGET;
 }
+
 
 //////////////////////////////////////////////////
 //
@@ -1213,6 +1447,8 @@ MotorCommMachine::MTRC_h19(void) {
 
 WORD
 MotorCommMachine::MTRC_h20(void) {
+
+        currYCoordinate = targetYCoordinate;    // Update curr value
 
         // Both axis are now on their final positions
         // Inform HMM about the completion of the request
@@ -1225,12 +1461,14 @@ MotorCommMachine::MTRC_h20(void) {
 
 //////////////////////////////////////////////////
 //
-// Message: Y Axis On Target
+// Message: X Axis On Target
 //
 //////////////////////////////////////////////////
 
 WORD
 MotorCommMachine::MTRC_h21(void) {
+
+        currXCoordinate = targetXCoordinate;    // Update curr value
 
         // Both axis are now on their final positions
         // Inform HMM about the completion of the request
@@ -1269,7 +1507,135 @@ MotorCommMachine::MTRC_h22(void) {
 }
 
 
+//////////////////////////////////////////////////
+//
+// Message: Start Continuous Move
+//
+//////////////////////////////////////////////////
 
+WORD
+MotorCommMachine::MTRC_h23(void) {
+
+        // Get the message data, the final probe head destination
+
+        targetXCoordinate = (int)(GetCurrEvent().msgData1);
+        targetYCoordinate = (int)(GetCurrEvent().msgData2);
+
+            // Send the probe head on its way
+
+            SendMcsMoveCommand(X_AXIS, targetXCoordinate);
+            SendMcsMoveCommand(Y_AXIS, targetYCoordinate);
+
+    return MTRC_MOVING_TO_CONTINUOUS_TARGET_END;
+}
+
+
+//////////////////////////////////////////////////
+//
+// Message: Adjust Y Target
+//
+//////////////////////////////////////////////////
+
+WORD
+MotorCommMachine::MTRC_h24(void) {
+
+        targetYCoordinate = (int)(GetCurrEvent().msgData1);
+
+        // Adjust the Y Axis
+
+        if(!IsYAxisOnTarget())
+            SendMcsMoveCommand(Y_AXIS, targetYCoordinate);
+
+    return MTRC_MOVING_TO_CONTINUOUS_TARGET_END;
+}
+
+
+//////////////////////////////////////////////////
+//
+// Message: Set Break Point X
+//
+//////////////////////////////////////////////////
+
+WORD
+MotorCommMachine::MTRC_h25(void) {
+
+    int breakPointX = (int)(GetCurrEvent().msgData1);
+
+        SendMcsBreakPointCommand(X_AXIS, breakPointX);
+
+    return MTRC_MOVING_TO_CONTINUOUS_TARGET_END;
+}
+
+
+
+//////////////////////////////////////////////////
+//
+// Message: Set Break Point Y
+//
+//////////////////////////////////////////////////
+
+WORD
+MotorCommMachine::MTRC_h25a(void) {
+
+    int breakPointY = (int)(GetCurrEvent().msgData1);
+
+        SendMcsBreakPointCommand(Y_AXIS, breakPointY);
+
+    return MTRC_MOVING_TO_CONTINUOUS_TARGET_END;
+}
+
+
+//////////////////////////////////////////////////
+//
+// Message: Y Axis On Target
+//
+//////////////////////////////////////////////////
+
+WORD
+MotorCommMachine::MTRC_h26(void) {
+
+        // Update curr Y
+
+        currYCoordinate = targetYCoordinate;
+
+    return MTRC_MOVING_TO_CONTINUOUS_TARGET_END;
+}
+
+
+//////////////////////////////////////////////////
+//
+// Message: Break Point Triggered
+//
+//////////////////////////////////////////////////
+
+WORD
+MotorCommMachine::MTRC_h27(void) {
+
+        // Forward message to HMM
+
+        SendHiPrMsg(HeadMachinesManagerID, BreakPointTriggered);
+
+    return MTRC_IDLE;
+}
+
+
+//////////////////////////////////////////////////
+//
+// Message: X Axis On Target
+//
+//////////////////////////////////////////////////
+
+WORD
+MotorCommMachine::MTRC_h28(void) {
+
+        // Update curr X
+
+        currYCoordinate = targetYCoordinate;
+
+        SendHiPrMsg(HeadMachinesManagerID, ContinuousMoveDone);
+
+    return MTRC_IDLE;
+}
 
 
 

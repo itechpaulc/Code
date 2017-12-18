@@ -72,7 +72,7 @@ SysLedStatusMachine::LedOn(void)
 {
     p1Status = GetIO1Latch();           // Read Port 1
 
-    p1Status |= SYS_STATUS_LED_PORT;    // Set LED Port
+    //p1Status |= SYS_STATUS_LED_PORT;    // Set LED Port
 
     SetIO1Latch(p1Status);              // Write to Port
 }
@@ -88,7 +88,7 @@ SysLedStatusMachine::LedOff(void)
 {
     p1Status = GetIO1Latch();           // Read Port 1
 
-    p1Status &= ~SYS_STATUS_LED_PORT;   // Clear LED Port
+    //p1Status &= ~SYS_STATUS_LED_PORT;   // Clear LED Port
 
     SetIO1Latch(p1Status);              // Write to Port
 }
@@ -146,7 +146,7 @@ BYTE    SysLedStatusMachine::p1Status;
 //
 //////////////////////////////////////////////////
 
-SysLedStatusMachine::SysLedStatusMachine(BYTE sMsysID)
+SysLedStatusMachine::SysLedStatusMachine(STATE_MACHINE_ID sMsysID)
     :StateMachine(sMsysID)
 {
     LedOff();

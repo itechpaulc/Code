@@ -27,9 +27,11 @@
 
 #include "mdatmngr.h"
 
+
 #include <string.h>
 
 #pragma _builtin_(memset)
+
 
 
 //////////////////////////////////////////////////
@@ -57,7 +59,7 @@ IsMeasurementDataBad(SCAN_MEASUREMENT_DATA *ptrMd)
 void
 ClearMeasurementData(SCAN_MEASUREMENT_DATA *ptrMd)
 {
-    memset(ptrMd, 0x00, ATOD_MEASUREMENT_SIZE);
+    memset(ptrMd, 0x00, sizeof(SCAN_MEASUREMENT_DATA));
 }
 
 
@@ -80,7 +82,9 @@ MeasurementDataManager::startMeasurementPtr = 0;
 
 MeasurementDataManager::MeasurementDataManager(void)
 {
-    Reset();
+    // Debug
+
+    // Reset();
 }
 
 MeasurementDataManager::~MeasurementDataManager(void) { }
@@ -164,6 +168,7 @@ MeasurementDataManager::IsFull(void)
     return (measurementCount == MAX_MEASUREMENTS) ?
         TRUE : FALSE;
 }
+
 
 
 

@@ -30,16 +30,41 @@
 
 
 
+#pragma _builtin_(saveglobaltable)
+#pragma _builtin_(restoreglobaltable)
+
+void    saveglobaltable(void *ptrTable);
+void    restoreglobaltable(void *ptrTable);
+
+
 //////////////////////////////////////////////////
 //
 //  386EX
 //
+//  Private Varibles and defines
+//
 //////////////////////////////////////////////////
 
 
-BYTE    _IRQ_SlaveBase_ = 0x30;
-BYTE    _IRQ_MstrBase_  = 0x20;
-BYTE    _CascadeBits_   = 0x4;
+static      BYTE     _IRQ_SlaveBase_     = 0x30;
+static      BYTE     _IRQ_MstrBase_      = 0x20;
+static      BYTE     _CascadeBits_       = 0x04;
+
+
+static      WORD    SSIO_MeasurementBuffer[ATOD_MEASUREMENT_SIZE];
+
+
+/////////////////////////////////////////////////////////
+//
+//  ACCESS to the buffer used by the
+//  SSIO and the DMA
+//
+/////////////////////////////////////////////////////////
+
+WORD    * GetMeasurementBuffer(void) {
+
+    return SSIO_MeasurementBuffer;
+}
 
 
 //////////////////////////////////////////////////
@@ -87,10 +112,9 @@ InitICU(BYTE MstrMode, BYTE MstrBase, BYTE MstrCascade,
         BYTE SlaveMode, BYTE SlaveBase,
         BYTE MstrPins, BYTE SlavePins)
 {
-
     BYTE   icw, cfg_pins;
 
-    //  Program Slave ICU
+        //  Program Slave ICU
 
         _IRQ_SlaveBase_ = SlaveBase & 0xf8;
         _SetEXRegByte(ICW1S, 0x11 | SlaveMode);         // Set slave triggering
@@ -98,7 +122,8 @@ InitICU(BYTE MstrMode, BYTE MstrBase, BYTE MstrCascade,
         _SetEXRegByte(ICW3S, 0x2);                      // Set slave ID
         _SetEXRegByte(ICW4S, 0x1);                      // Set bit 0 to guarantee operation
 
-    // Program Master ICU
+
+        // Program Master ICU
 
         _IRQ_MstrBase_ = MstrBase & 0xf8;
         _CascadeBits_  = MstrCascade | 0x4;
@@ -111,7 +136,8 @@ InitICU(BYTE MstrMode, BYTE MstrBase, BYTE MstrCascade,
         icw = (MstrMode & ~ICU_TRIGGER_LEVEL) | 1;      // Set bit 0 and remove Trigger_level bit (part of ICW1)
         _SetEXRegByte(ICW4M, icw);                      // Set slave IDs in master
 
-    // Program chip configuration registers
+
+        // Program chip configuration registers
 
         cfg_pins = _GetEXRegByte(INTCFG);
 
@@ -467,202 +493,14 @@ void Init_ClockPMU(BYTE PowerCont, BYTE ClockPrescale)
 
 //////////////////////////////////////////////////
 //
-//  386EX
+// 386EX DMA CONTROL CODE
 //
-//      Init_CSU
-//
-//////////////////////////////////////////////////
-
-void Init_CSU(void)
-{
-    // MEMORY
-    // Configure Upper Chip Select UCS
-    // BOOT ROM
-    // Region Size 65536 Bytes, 8 Bit Data Port
-    // 15 Wait States
-
-    _SetEXRegWord(UCSADL, 0x010f);
-    _SetEXRegWord(UCSADH, 0x0000);
-    _SetEXRegWord(UCSMSKL, 0xfc01);
-    _SetEXRegWord(UCSMSKH, 0x03ff);
-
-    // MEMORY
-    // Configure Chip Select CS0, CS1, CS2, CS3
-    // 4 LOCAL STAIC RAM BANKS
-    // Region Size 128K x 16 - 16 Bit Data Port
-    // 1 Wait States
-
-    _SetEXRegWord(CS0ADL, 0x0301);  // CS0 = 0x0 - 0x1ffff
-    _SetEXRegWord(CS0ADH, 0x0000);
-    _SetEXRegWord(CS0MSKL, 0xfc01);
-    _SetEXRegWord(CS0MSKH, 0x0001);
-
-    _SetEXRegWord(CS1ADL, 0x0301);  // CS1 = 0x20000 - 0x3ffff
-    _SetEXRegWord(CS1ADH, 0x0002);
-    _SetEXRegWord(CS1MSKL, 0xfc01);
-    _SetEXRegWord(CS1MSKH, 0x0001);
-
-    _SetEXRegWord(CS2ADL, 0x0301);  // CS2 = 0x40000 - 0x5ffff
-    _SetEXRegWord(CS2ADH, 0x0004);
-    _SetEXRegWord(CS2MSKL, 0xfc01);
-    _SetEXRegWord(CS2MSKH, 0x0001);
-
-    _SetEXRegWord(CS3ADL, 0x0301);  // CS3 = 0x60000 - 0x7ffff
-    _SetEXRegWord(CS3ADH, 0x0006);
-    _SetEXRegWord(CS3MSKL, 0xfc01);
-    _SetEXRegWord(CS3MSKH, 0x0001);
-
-    // IO
-    // Configure Chip Select CS4
-    // MOTOR CONTROL CHIP SET
-    // Region Size 2 Bytes, 8 Bit Data Port
-    // 1 Wait States
-
-    _SetEXRegWord(CS4ADL, 0x0402);  // CS4 = 0x300 - 0x301
-    _SetEXRegWord(CS4ADH, 0x000c);
-    _SetEXRegWord(CS4MSKL, 0x0401);
-    _SetEXRegWord(CS4MSKH, 0x0001);
-
-    // MEMORY
-    // Configure Chip Select CS5
-    // MAIL BOX IN
-    // Region Size 2 KBytes - 16 Bit Data Port
-    // 2 Wait States
-
-    _SetEXRegWord(CS5ADL, 0x0301);  // 0xA0000 - 0xA03ff
-    _SetEXRegWord(CS5ADH, 0x000a);
-    _SetEXRegWord(CS5MSKL, 0x0401);
-    _SetEXRegWord(CS5MSKH, 0x0000);
-
-    // MEMORY
-    // Configure Chip Select CS6
-    // MAIL BOX OUT
-    // Region Size 2 KBytes - 16 Bit Data Port
-    // 1 Wait States
-
-    _SetEXRegWord(CS6ADL, 0x0301);  // 0xB0000 - 0xB03ff
-    _SetEXRegWord(CS6ADH, 0x000b);
-    _SetEXRegWord(CS6MSKL, 0x0401);
-    _SetEXRegWord(CS6MSKH, 0x0000);
-}
-
-
-//////////////////////////////////////////////////
-//
-//  386EX
-//
-//  This function sets the target memory address
-//  for the DMA channel specified by nChannel.
-//
-//  PARAMETERS:
-//
-//      nChannel - channel for which to set target address
-//      ptMemory - pointer to target memory location
-//
-//  ASSUMPTIONS:
-//      Processor is in real mode.
-//
-//  REAL/PROTECTED MODE:
-//      The address calculation from ptMemory
-//      assumes the processor is in real mode.
-//
+// As shown in the : Intel 386 EX
+// Pin Multiplexing Schematic Diagram
+// RBF (Receive Buffer Full) of SSIO is Connected
+// to DMA1. This is why DMA 1 was selected
 //
 //////////////////////////////////////////////////
-
-void    SetDMATargMemAddr(BYTE nChannel, void *ptMemory)
-{
-   BYTE addrDMATar0_1, addrDMATar2, addrDMATar3;
-
-   WORD wSegment, wOffset;
-
-   DWORD lAddress;
-
-       // Set registers to correct channel
-
-        /*
-       addrDMATar0_1 = ( nChannel == DMA_Channel0 ? DMA0TAR0_1 : DMA1TAR0_1);
-       addrDMATar2 = ( nChannel == DMA_Channel0 ? DMA0TAR2 : DMA1TAR2);
-       addrDMATar3 = ( nChannel == DMA_Channel0 ? DMA0TAR3 : DMA1TAR3);
-        */
-
-
-       /*
-                                                // If in tiny, small, or medium model,
-       #if defined(M_I86TM) || defined(M_I86SM) || defined(M_I86MM)
-          _asm
-          {                                     // ...then grab our segment from DS
-             mov ax, ds
-             mov wSegment, ds
-          }
-          wOffset = (WORD) ptMemory;            // ...and our offset from the pointer
-       #else                                    // Else, if in compact, large, or huge memory model
-          wSegment = FP_SEG(ptMemory);          // ...grab the segment from the pointer
-          wOffset = FP_OFF(ptMemory);           // ...and the offset from the pointer
-       #endif                                   // Assuming real mode, compute our physical address
-
-          lAddress = ((DWORD) wSegment << 4) + wOffset;
-
-        */
-
-        _SetEXRegByte(DMACLRBP, 0x0);                                   // Clear the byte pointer flip-flop
-
-        _SetEXRegByte(addrDMATar0_1, (BYTE) (lAddress & 0xFF));         // Write target address, bits 0-7
-
-        _SetEXRegByte(addrDMATar0_1, (BYTE) ((lAddress >> 8) & 0xFF));  // Write target address, bits 8-15
-
-        _SetEXRegByte(addrDMATar2, (BYTE) ((lAddress >> 16) & 0xFF));   // Write target address, bits 16-23
-
-        _SetEXRegByte(addrDMATar3, (BYTE) ((lAddress >> 24) & 0x03));   // Write target address, bits 24-25
-}
-
-
-
-//////////////////////////////////////////////////
-//
-//  386EX
-//
-//  This function sets the target memory
-//  device for the DMA channel specified
-//  by nChannel.
-//
-//  PARAMETERS:
-//
-//      nChannel - channel for which to set target address
-//      ptMemory - pointer to target memory location
-//
-//  ASSUMPTIONS:
-//      Processor is in real mode.
-//
-//  REAL/PROTECTED MODE:
-//      The address calculation from ptMemory
-//      assumes the processor is in real mode.
-//
-//
-//////////////////////////////////////////////////
-
-void    SetDMAXferCount(BYTE nChannel, DWORD lCount)
-{
-   BYTE addrDMAByc0_1;
-   BYTE addrDMAByc2;
-
-        // Set registers to correct channel
-
-        /*
-        addrDMAByc0_1 = (nChannel == DMA_Channel0 ? DMA0BYC0_1 : DMA1BYC0_1);
-        addrDMAByc2 = (nChannel == DMA_Channel0 ? DMA0BYC2 : DMA1BYC2);
-        */
-
-        // Clear the byte pointer flip-flop
-
-        _SetEXRegByte(DMACLRBP, 0x0);
-
-        _SetEXRegByte(addrDMAByc0_1, (BYTE) ( lCount & 0xFF));          // Write count, bits 0-7
-
-        _SetEXRegByte(addrDMAByc0_1, (BYTE) ((lCount >> 8)  & 0xFF));   // Write count, bits 8-15
-
-        _SetEXRegByte(addrDMAByc2, (BYTE) ((lCount >> 16) & 0xFF));     // Write count, bits 16-23
-}
-
 
 //////////////////////////////////////////////////
 //
@@ -704,25 +542,6 @@ void InitDMA(void)
 //
 //  386EX
 //
-//  This function enables channel hardware
-//  requests for the given DMA channel.
-//
-//////////////////////////////////////////////////
-
-void    EnableDMAHWRequests(BYTE nChannel)
-{
-    BYTE regDMAMSK = 0;                     // Clear regDMAMSK[HRM]
-
-        regDMAMSK = nChannel;               // Set regDMAMSK[CS] to channel
-        _SetEXRegByte(DMAMSK, regDMAMSK);   // Clear hardware request mask for
-                                            // given channel
-}
-
-
-//////////////////////////////////////////////////
-//
-//  386EX
-//
 //  This function disables channel hardware
 //  requests for the given DMA channel.
 //  The channel, however, can still receive
@@ -746,31 +565,18 @@ void    DisableDMAHWRequests(BYTE nChannel)
 //
 //  386EX
 //
-//  Set the requester to an I/O port address, wIO
-//  for the DMA channel specified by nChannel.
+//  This function enables channel hardware
+//  requests for the given DMA channel.
 //
 //////////////////////////////////////////////////
 
-void SetDMAReqIOAddr(BYTE nChannel, WORD wIO)
+void    EnableDMAHWRequests(BYTE nChannel)
 {
-   BYTE addrDMAReq0_1;
-   BYTE addrDMAReq2_3;
+    BYTE regDMAMSK = 0;                     // Clear regDMAMSK[HRM]
 
-       // Set registers to correct channel
-
-       /*
-       addrDMAReq0_1 = ( nChannel == DMA_Channel0 ? DMA0REQ0_1 : DMA1REQ0_1);
-       addrDMAReq2_3 = ( nChannel == DMA_Channel0 ? DMA0REQ2_3 : DMA1REQ2_3);
-       */
-
-       _SetEXRegByte(DMACLRBP, 0x0);             // Clear the byte pointer flip-flop
-                                                 // Write requester I/O address, bits 0-7
-
-       _SetEXRegByte(addrDMAReq0_1, (BYTE) (wIO & 0xFF));   // Write requester I/O address, bits 8-15
-       _SetEXRegByte(addrDMAReq0_1, (BYTE) ((wIO >> 8) & 0xFF));
-
-       _SetEXRegByte(addrDMAReq2_3, 0x00);       // Zero requester address bits 16-23
-       _SetEXRegByte(addrDMAReq2_3, 0x00);       // Zero requester address bits 24-25
+        regDMAMSK = nChannel;               // Set regDMAMSK[CS] to channel
+        _SetEXRegByte(DMAMSK, regDMAMSK);   // Clear hardware request mask for
+                                            // given channel
 }
 
 
@@ -779,58 +585,454 @@ void SetDMAReqIOAddr(BYTE nChannel, WORD wIO)
 //  386EX
 //
 //  Initialize DMA for SSIO Interrupt to transfer
-//  measurment data directly to memory
+//  the Probe Heaad's Measurment Data
+//  directly to a memory buffer
 //
 //////////////////////////////////////////////////
 
-const   BYTE    DMA1_ACK_MASK               = 0x08;
-const   BYTE    DMA1_SSIO_RCV_BUFF_FULL     = 0x07;
+#define     DMA1_ACK_MASK                   (BYTE)0x80
+#define     DMA1_SSIO_RCV_BUFF_FULL         (BYTE)0x30
 
-const   BYTE    CS_DMA1                     = 0x00;
-const   BYTE    DMA1_TRANSFER_DIRECTION     = 0x04;
+#define     CS_DMA1                         (BYTE)0x01
+#define     DMA1_DIR_REQUESTER_TO_TARGET    (BYTE)0x04
+#define     DMA1_AUTO_INITIALIZE            (BYTE)0x08
+
+#define     DMA1_REQUESTER_ADDRESS_HOLD     (BYTE)0x08
+#define     DMA1_REQUESTER_IN_IO_SPACE      (BYTE)0x40
+
+#define     DMA0_CFG_MASK                   (BYTE)0x0F
+
+#define     DMA1_DMAIEN_RESERVED_MASK       (BYTE)0xFC
+#define     DMA1_TRANSFER_COMPLETE_IRQ      (BYTE)0x02
+
+#define     DMA1_DMAOVFE_RESERVED_MASK      (BYTE)0xF0
+#define     DMA1_TOV1                       (BYTE)0x04
+
 
 void    InitDMAForSSIOToMemory(void)
 {
     BYTE    regDMACfg, regDMAIE, regDMAOvfE;
 
-        /*
+        InitDMA();
 
         DisableDMAHWRequests(DMA_Channel1);
 
-        regDMACfg =
-            (_GetEXRegByte(DMACFG)
-                | DMA1_SSIO_RCV_BUFF_FULL
-                | DMA1_ACK_MASK);
+        //////////////////////////////////////////////////
+        // SET DMA Config Register
+        // Dont Touch DMA 0, clear DMA 1 config reading
+        // Set DMA 1 config to : SSIO(SSRBF)
+        // : ACK MASK since DREQ1 is connected to an internal peripheral
+        //////////////////////////////////////////////////
+
+        regDMACfg = ( (_GetEXRegByte(DMACFG) & DMA0_CFG_MASK)
+                        | DMA1_SSIO_RCV_BUFF_FULL | DMA1_ACK_MASK);
 
         _SetEXRegByte(DMACFG, regDMACfg);
 
+
+        //////////////////////////////////////////////////
+        // Set CHANNEL SELECT (CS) = Channel 1, DMA1
+        // Set TRANSFER DIRECTTION = REQUESTER_TO_TARGET
+        // Set to Enable Auto Initialize, DMAMOD1[BIT 4] = 1
+        // Increment Target's Address, DMAMOD1[BIT 5] = 0
+        // Set Transfer Mode to DEMAND MODE, DMAMOD1[BIT 6,7] = 0
+        // Change Mode1 Register
+        //////////////////////////////////////////////////
+
         _SetEXRegByte(DMAMOD1,
-            (CS_DMA1
-                | DMA1_TRANSFER_DIRECTION
-                | ));
-
-        _SetEXRegByte(DMAMOD2, );
-
-        _SetEXRegByte(DMABSR, );
-
-        _SetEXRegByte(DMACHR, );
+            (CS_DMA1 | DMA1_DIR_REQUESTER_TO_TARGET | DMA1_AUTO_INITIALIZE));
 
 
-        regDMAIE = (_GetEXRegByte(DMAIEN) & 0x01);
+        //////////////////////////////////////////////////
+        // SET Mode2 Register
+        // Set CHANNEL SELECT (CS) = Channel 1, DMA1
+        // Do Not HOLD Target Address, DMAMOD2[2] = 0
+        // HOLD The requester Address = DMA1_REQUESTER_ADDRESS_HOLD, the
+        //      SSIO address remains the same as the requester
+        // Target Device Type is in Memory Space, DMAMOD2[5] = 0
+        // Requester Device Type = DMA1_REQUESTER_IN_IO_SPACE
+        // Bus Cycle Option used is the Fly-By Mode, DMAMOD2[7] = 0
+        //////////////////////////////////////////////////
+
+        _SetEXRegByte(DMAMOD2,
+            (CS_DMA1 | DMA1_REQUESTER_ADDRESS_HOLD | DMA1_REQUESTER_IN_IO_SPACE));
+
+
+        //////////////////////////////////////////////////
+        // SET Bus Size Register
+        // Set CHANNEL SELECT (CS) = Channel 1, DMA1
+        // Set Target Bus Size 16 Bit, DMABSR[4] = 0
+        // Set Target Bus Size 16 Bit, DMABSR[6] = 0
+        //      In other words Clear the whole Register
+        //////////////////////////////////////////////////
+
+        _SetEXRegByte(DMABSR, (CS_DMA1));
+
+
+        //////////////////////////////////////////////////
+        // SET DMA Chaining Register
+        // Set CHANNEL SELECT (CS) = Channel 1, DMA1
+        // Disable Chaining buffer transfers (CE),
+        //      DMACHR[2] = 0
+        //      In other words Clear the whole Register
+        //////////////////////////////////////////////////
+
+        _SetEXRegByte(DMACHR, (CS_DMA1));
+
+
+        //////////////////////////////////////////////////
+        // SET Interrupt Enable Register
+        // Do not touch the reserved bits, DMAIEN[2..7]
+        // Clear DMA Channel 0, Transfer Complete
+        //      TC0, DMAIEN[0] = 0
+        // Set DMA Channel 1, Transfer Complete TC1,
+        //      DMAIEN[1] = DMA1_TRANSFER_COMPLETE_IRQ
+        //////////////////////////////////////////////////
+
+        regDMAIE = ((_GetEXRegByte(DMAIEN) & DMA1_DMAIEN_RESERVED_MASK)
+                        | DMA1_TRANSFER_COMPLETE_IRQ);
 
         _SetEXRegByte(DMAIEN, regDMAIE);
 
 
-        regDMAOvfE = (_GetEXRegByte(DMAOVFE) | 0x0C);
+        //////////////////////////////////////////////////
+        // SET Overflow Enable Register
+        // Do not touch the reserved bits, DMAOVFE[4..7]
+        // Set Target Over Flow Enable to use 26 Bits,
+        //      to allow the Measurement Buffer to be
+        //      placed outside of the 64 K boundary
+        //      DMAOVFE[2] = DMA1_TOV1
+        // Does not care for the requester's register.
+        //      The requester will always be the
+        //      SSIO peripheral
+        //////////////////////////////////////////////////
+
+        regDMAOvfE = ((_GetEXRegByte(DMAOVFE) & DMA1_DMAOVFE_RESERVED_MASK) | DMA1_TOV1 );
 
         _SetEXRegByte(DMAOVFE, regDMAOvfE);
 
+
+        //////////////////////////////////////////////////
         // Set Requester I/O Address to SSIO Receiver
+        //////////////////////////////////////////////////
 
         SetDMAReqIOAddr(DMA_Channel1, SSIORBUF);
 
-        */
+
+        //////////////////////////////////////////////////
+        // Set Target Memory Address
+        //////////////////////////////////////////////////
+
+        SetDMATargetMemAddr(DMA_Channel1, SSIO_MeasurementBuffer);
+
+
+        //////////////////////////////////////////////////
+        // Set Transfer Byte Count
+        //////////////////////////////////////////////////
+
+        SetDMAXferCount(DMA_Channel1, SSIO_DMA_TRANSFER_BYTE_COUNT);
 }
+
+
+//////////////////////////////////////////////////
+//
+//  386EX
+//
+//  Set the requester to an I/O port address, wIO
+//  for the DMA channel specified by nChannel.
+//
+//////////////////////////////////////////////////
+
+void SetDMAReqIOAddr(BYTE nChannel, WORD wIO)
+{
+   WORD addrDMAReq0_1;
+   WORD addrDMAReq2_3;
+
+        // Set registers to correct channel
+
+        addrDMAReq0_1 = ( nChannel == DMA_Channel0 ? DMA0REQ0_1 : DMA1REQ0_1);
+        addrDMAReq2_3 = ( nChannel == DMA_Channel0 ? DMA0REQ2_3 : DMA1REQ2_3);
+
+        // Clear the byte pointer flip-flop. Reset BP to Known
+        // State (0) before writing to the Channnel Registers, Requester's Address
+
+        _SetEXRegByte(DMACLRBP, 0x0);
+
+
+        // Write requester I/O address, bits 8-15
+
+        _SetEXRegByte(addrDMAReq0_1, (BYTE) (wIO & 0xFF));
+        _SetEXRegByte(addrDMAReq0_1, (BYTE) ((wIO >> 8) & 0xFF));
+
+        _SetEXRegByte(addrDMAReq2_3, 0x00);       // Zero requester address bits 16-23
+        _SetEXRegByte(addrDMAReq2_3, 0x00);       // Zero requester address bits 24-25
+}
+
+
+//////////////////////////////////////////////////
+//
+//  386EX
+//
+//  This function sets the target memory address
+//  for the DMA channel specified by nChannel.
+//
+//  PARAMETERS:
+//
+//      nChannel - channel for which to set target address
+//      ptMemory - pointer to target memory location
+//
+//////////////////////////////////////////////////
+
+#define     SIX_BYTE_BUFFER         6
+#define     EIGHT_BYTE_BUFFER       8
+
+#define     FP_OFF(fp)  (*((DWORD far *) & (fp) + 1))
+
+void    SetDMATargetMemAddr(BYTE nChannel, void far * ptMemory)
+{
+    /*
+
+    WORD    addrDMATar0_1, addrDMATar2, addrDMATar3;
+
+        // Determine the physical location as pointed by "ptMemory"
+        // while the processor is already in Protected Mode
+
+        WORD     wOffset  = FP_OFF(ptMemory);   // : 16 bit
+
+
+        BYTE    globalTable[SIX_BYTE_BUFFER];
+
+                saveglobaltable(globalTable);   // Fill up the 6-byte buffer
+
+
+        // Build the GDT base address, extracting data from the 6-byte buffer
+
+        DWORD   globalTableBaseAddress = (DWORD)
+                    ((globalTable[2]) | (globalTable[3] << 8) |
+                     (globalTable[4] << 16) | (globalTable[5] << 24));
+
+
+        // Determine which table among the GDT is used, through the offset
+
+        BYTE    * descriptorTableBaseAddress = (BYTE *)(globalTableBaseAddress + wOffset);
+
+
+        // Copy the descriptor table
+
+        BYTE    dataSegmentDescriptor[EIGHT_BYTE_BUFFER];
+
+                dataSegmentDescriptor[0] = *(descriptorTableBaseAddress);
+                dataSegmentDescriptor[1] = *(descriptorTableBaseAddress+1);
+                dataSegmentDescriptor[2] = *(descriptorTableBaseAddress+2);
+                dataSegmentDescriptor[3] = *(descriptorTableBaseAddress+3);
+                dataSegmentDescriptor[4] = *(descriptorTableBaseAddress+4);
+                dataSegmentDescriptor[5] = *(descriptorTableBaseAddress+5);
+                dataSegmentDescriptor[6] = *(descriptorTableBaseAddress+6);
+                dataSegmentDescriptor[7] = *(descriptorTableBaseAddress+7);
+
+        // Build the Base Address, extracting data from dataSegmentDescriptor
+
+        DWORD   dataSegmentBaseAddress;
+
+        DWORD   longAddress;
+
+
+            longAddress =
+
+            // Set registers to correct channel
+
+            addrDMATar0_1   = ( nChannel == DMA_Channel0 ? DMA0TAR0_1 : DMA1TAR0_1);
+            addrDMATar2     = ( nChannel == DMA_Channel0 ? DMA0TAR2 : DMA1TAR2);
+            addrDMATar3     = ( nChannel == DMA_Channel0 ? DMA0TAR3 : DMA1TAR3);
+
+
+            // Clear the byte pointer flip-flop. Reset BP to Known
+            // State (0) before writing to the Channnel Registers, Target Address
+
+            _SetEXRegByte(DMACLRBP, 0x0);
+
+
+            // Write target address, bits 0-7, BYTE 0,
+            // NOTE: BP is automatically incremented to the next
+
+            _SetEXRegByte(addrDMATar0_1, (BYTE)(longAddress & 0xFF));
+
+            // Write target address, bits 8-15, BYTE 1
+
+            _SetEXRegByte(addrDMATar0_1, (BYTE)((longAddress >> 8) & 0xFF));
+
+            // Write target address, bits 16-23, BYTE 2
+
+            _SetEXRegByte(addrDMATar2, (BYTE)((longAddress >> 16) & 0xFF));
+
+            // Write target address, bits 24-25, BYTE 3
+
+            _SetEXRegByte(addrDMATar3, (BYTE)((longAddress >> 24) & 0x03));
+
+    */
+}
+
+
+
+//////////////////////////////////////////////////
+//
+//  386EX
+//
+//  This function sets the target memory
+//  device for the DMA channel specified
+//  by nChannel.
+//
+//  PARAMETERS:
+//
+//      nChannel - channel for which to set target address
+//      ptMemory - pointer to target memory location
+//
+//////////////////////////////////////////////////
+
+void    SetDMAXferCount(BYTE nChannel, DWORD lCount)
+{
+    WORD addrDMAByc0_1;
+    WORD addrDMAByc2;
+
+        // Set registers to correct channel
+
+        addrDMAByc0_1 = (nChannel == DMA_Channel0 ? DMA0BYC0_1 : DMA1BYC0_1);
+        addrDMAByc2 = (nChannel == DMA_Channel0 ? DMA0BYC2 : DMA1BYC2);
+
+
+        // Clear the byte pointer flip-flop. Reset BP to Known
+        // State (0) before writing to the Channnel Registers, Byte Counter
+
+        _SetEXRegByte(DMACLRBP, 0x0);
+
+
+        // Write count, bits 0-7
+        // NOTE: BP is automatically incremented to the next
+
+        _SetEXRegByte(addrDMAByc0_1, (BYTE)(lCount & 0xFF));
+
+        // Write count, bits 8-15
+
+        _SetEXRegByte(addrDMAByc0_1, (BYTE)((lCount >> 8)  & 0xFF));
+
+        // Write count, bits 16-23
+
+        _SetEXRegByte(addrDMAByc2, (BYTE)((lCount >> 16) & 0xFF));
+}
+
+
+
+//////////////////////////////////////////////////
+//
+// 386EX ASYNC SERIAL CONTROL CODE
+//
+//////////////////////////////////////////////////
+
+//////////////////////////////////////////////////
+//
+//  386EX
+//
+//      Initialization routine for Asynchronous Serial I/O Port.
+//
+//  Parameters:
+//      Unit    Unit number of the serial port.  0 for SIO port 0, 1 for SIO port 1.
+//      Mode    Defines Parity, number of data bits, number of stop bits... Reference
+//              Serial Line Control register for various options
+//
+//      BaudRate    Specifies baud rate.  The baud divisor value is calculated based
+//                  on clocking source and clock frequency.  The clocking frequency
+//                  is set by calling the InitializeLibrary function.
+//      ClockRate   Specifies the serial port clocking rate, for
+//                  internal clocking = CLK2 for external = COMCLK
+//
+//  Returns: Error Codes
+//      E_INVAILD_DEVICE    -- Unit number specifies a non-existing device
+//      E_OK                -- Initialized OK, No error.
+//
+//  Assumptions:
+//      SIOCFG  Has already been configured for Clocking source and Modem control source
+//
+//      REMAPCFG register has Expanded I/O space access enabled (ESE bit set).
+//      The processor Port pin are initialized separately.
+//
+//////////////////////////////////////////////////
+
+int InitSIO(int Unit, BYTE Mode, DWORD BaudRate, DWORD BaudClkIn)
+{
+   WORD SIOPortBase;
+   WORD BaudDivisor;
+
+        // Check for valid unit
+
+        if(Unit > 1)
+          return E_INVALID_DEVICE;
+
+        // Set Port base based on serial port used
+
+        SIOPortBase = (Unit ? SIO1_BASE : SIO0_BASE);
+
+        // Initialized Serial Port registers
+        // Calculate the baud divisor value, based on baud clocking
+
+        BaudDivisor = (WORD)(BaudClkIn / (16*BaudRate));
+
+        // Turn on access to baud divisor register
+
+        _SetEXRegByte(SIOPortBase + LCR, 0x80);
+
+        // Set the baud rate divisor register, High byte first
+
+        _SetEXRegByte(SIOPortBase + DLH, HIBYTE(BaudDivisor));
+        _SetEXRegByte(SIOPortBase + DLL, LOBYTE(BaudDivisor));
+
+        // Set Serial Line control register
+        // Sets Mode and reset the Divisor latch
+
+        _SetEXRegByte(SIOPortBase + LCR, Mode);
+
+   return E_OK;
+}
+
+
+
+//////////////////////////////////////////////////
+//
+// 386EX SYNCHRONOUS SERIAL CONTROL CODE
+//
+//////////////////////////////////////////////////
+
+//////////////////////////////////////////////////
+//
+//  386EX
+//
+//      Must have expanded I/O space enabled
+//      to initialize this peripheral.
+//
+//      Do Not Care about the Transmitter functions
+//
+//////////////////////////////////////////////////
+
+void InitSSIO(void)
+{
+    WORD   temp;
+
+        _SetEXRegByte(SSIOBAUD, 0x0);       // Configure the BRG, Disable
+                                            // Baud Rate Generator
+
+        _SetEXRegByte(SSIOCON2, 0x0);       // Control 2 Register, Set the
+                                            // Receiver in slave mode
+
+        _ReadEXRegWord(temp, SSIORBUF);     // Clear any receive buffer interrupt
+
+        _SetEXRegByte(SSIOCON1, 0xC1);      // Configure SSIO Control 1 Register
+                                            //
+                                            // The Receiver is Enabled.
+                                            //
+                                            // The receiver interrupt is Disabled.
+                                            // The transmitter is Disabled.
+                                            // The transmitter interrupt is Disabled.
+}
+
 
 
 

@@ -167,10 +167,34 @@ ScanCoordinateData::Clear(void)
 
 ScanParametersDataManager::ScanParametersDataManager(void)
 {
-    Reset();
+    // Debug
+
+    // Reset();
 }
 
 ScanParametersDataManager::~ScanParametersDataManager(void) { }
+
+
+//////////////////////////////////////////////////
+//
+// This fills up the scan parameter buffer
+// using the data stored in the Pci Buffer
+//
+/////////////////////////////////////////////////
+
+void
+ScanParametersDataManager::SetScanParameterData
+(ScanCoordinateData * ptrPciSourceBuffer, WORD entries) {
+
+    // put each entry into the next slot
+
+    for(int e=0; e < entries; e++) {
+
+        PutNext(*ptrPciSourceBuffer);
+
+        ++ptrPciSourceBuffer;
+    }
+}
 
 
 //////////////////////////////////////////////////
@@ -256,6 +280,8 @@ ScanParametersDataManager::GetAt(WORD index)
 {
     return  scanParameters[index];
 }
+
+
 
 
 

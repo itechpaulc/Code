@@ -40,7 +40,8 @@
 TableControl::TableControl(void)
 {
     AirOffProbeHeadUp();
-    HoldHeadReset();
+    HoldProbeHeadReset();
+    HoldMotorChipSetReset();
 }
 
 TableControl::~TableControl(void) { }
@@ -51,7 +52,7 @@ TableControl::~TableControl(void) { }
 //
 //
 //////////////////////////////////////////////////
-
+/*
 void
 TableControl::AirOnProbeHeadDown(void)
 {
@@ -63,6 +64,7 @@ TableControl::AirOnProbeHeadDown(void)
 
     airBearingOn = TRUE;
 }
+*/
 
 //////////////////////////////////////////////////
 //
@@ -82,6 +84,7 @@ TableControl::AirOffProbeHeadUp(void)
     airBearingOn = FALSE;
 }
 
+
 //////////////////////////////////////////////////
 //
 //
@@ -94,6 +97,7 @@ TableControl::IsAirOnProbeHeadDown(void)
     return airBearingOn;
 }
 
+
 //////////////////////////////////////////////////
 //
 //
@@ -101,7 +105,7 @@ TableControl::IsAirOnProbeHeadDown(void)
 //////////////////////////////////////////////////
 
 void
-TableControl::HoldHeadReset(void)
+TableControl::HoldProbeHeadReset(void)
 {
     p1Status = GetIO1Latch();       // Read Port 1
 
@@ -110,6 +114,7 @@ TableControl::HoldHeadReset(void)
     SetIO1Latch(p1Status);          // Write to Port
 }
 
+
 //////////////////////////////////////////////////
 //
 //
@@ -117,7 +122,7 @@ TableControl::HoldHeadReset(void)
 //////////////////////////////////////////////////
 
 void
-TableControl::ReleaseHeadReset(void)
+TableControl::ReleaseProbeHeadReset(void)
 {
     p1Status = GetIO1Latch();       // Read Port 1
 
@@ -125,6 +130,88 @@ TableControl::ReleaseHeadReset(void)
 
     SetIO1Latch(p1Status);          // Write to Port
 }
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void
+TableControl::HoldMotorChipSetReset(void) {
+
+
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void
+TableControl::ReleaseMotorChipSetReset(void) {
+
+
+}
+
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+BOOL
+TableControl::Is_48Volt_MotorDriverPowerOK(void) {
+
+    WORD    auxInStatus = *(AUX_INPUT_ADDRESS);
+
+        return (auxInStatus & DIAG_48V_MOTOR_DRIVER_POWER_STATUS) ?
+            TRUE : FALSE;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+BOOL
+TableControl::Is_12Volt_HeadPowerSupplyOK(void) {
+
+    WORD    auxInStatus = *(AUX_INPUT_ADDRESS);
+
+        return (auxInStatus & DIAG_12V_INTERCONNECT_HEAD_POWER_STATUS) ?
+            TRUE : FALSE;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+BOOL
+TableControl::Is_5Volt_InterconnectBoardPowerOK(void) {
+
+    WORD    auxInStatus = *(AUX_INPUT_ADDRESS);
+
+        return (auxInStatus & DIAG_5V_POWER_SUPPLY_STATUS) ?
+            TRUE : FALSE;
+}
+
+
+
+
+
+
+
 
 
 

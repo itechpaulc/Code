@@ -27,9 +27,13 @@
 
 
 
+
+
+
 #include "80386ex.h"
 
 #include "ledstat.h"
+
 
 
 
@@ -54,7 +58,8 @@ PciLedStatusMachine::LedOn(void)
 {
     p2Status = GetIO2Latch();           // Read Port 2
 
-    p2Status |= PCI_STATUS_LED_PORT;    // Set LED Port
+    //p2Status |= PCI_STATUS_LED_PORT;    // Set LED Port
+    p2Status |= BIT7MSK;    // Set LED Port
 
     SetIO2Latch(p2Status);              // Write to Port
 }
@@ -70,7 +75,8 @@ PciLedStatusMachine::LedOff(void)
 {
     p2Status = GetIO2Latch();           // Read Port 2
 
-    p2Status &= ~PCI_STATUS_LED_PORT;   // Clear LED Port
+    //p2Status &= ~PCI_STATUS_LED_PORT;   // Clear LED Port
+    p2Status &= ~BIT7MSK;   // Clear LED Port
 
     SetIO2Latch(p2Status);              // Write to Port
 }
@@ -130,7 +136,7 @@ BYTE    PciLedStatusMachine::p2Status;
 //
 //////////////////////////////////////////////////
 
-PciLedStatusMachine::PciLedStatusMachine(BYTE sMsysID)
+PciLedStatusMachine::PciLedStatusMachine(STATE_MACHINE_ID sMsysID)
     :StateMachine(sMsysID)
 {
     LedOff();
@@ -176,5 +182,7 @@ PciLedStatusMachine::PCI_SLM_h2(void)
 
     return  PCI_SLM_ON;
 }
+
+
 
 

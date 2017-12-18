@@ -25,7 +25,10 @@
 
 
 
+
 #include "tpdmngr.h"
+
+
 
 
 
@@ -38,8 +41,6 @@
 int     XYCoordinate::GetXCoordinate(void) { return xCoord; }
 
 int     XYCoordinate::GetYCoordinate(void) { return yCoord; }
-
-
 
 
 //////////////////////////////////////////////////
@@ -100,10 +101,13 @@ TableParametersDataManager::GetMoveProfile(MoveProfileIndex mpIdx) {
 
 
 //////////////////////////////////////////////////
+//////////////////////////////////////////////////
 //
 //  Table Attributes
 //
 //////////////////////////////////////////////////
+//////////////////////////////////////////////////
+
 
 //////////////////////////////////////////////////
 //
@@ -140,6 +144,19 @@ XYCoordinate &
 TableParametersDataManager::GetMaxTablePosition(void) {
 
     return  tableAttrib.maxTablePosition;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+XYCoordinate &
+TableParametersDataManager::GetHomeLocation(void) {
+
+    return  tableAttrib.homeLocation;
 }
 
 
@@ -210,14 +227,14 @@ TableParametersDataManager::GetGoingHomeSlowXPosition(void) {
 
 //////////////////////////////////////////////////
 //
-// Timing Parameters
+//
 //
 //////////////////////////////////////////////////
 
-DWORD
-TableParametersDataManager::GetFinalMoveSettleTime(void) {
+WORD
+TableParametersDataManager::GetColorBarLeadOffsetX(void) {
 
-    return  timingParam.finalMoveSettleTime;
+    return tableAttrib.colorBarLeadOffsetX;
 }
 
 
@@ -227,7 +244,102 @@ TableParametersDataManager::GetFinalMoveSettleTime(void) {
 //
 //////////////////////////////////////////////////
 
-DWORD
+WORD
+TableParametersDataManager::GetColorBarStartOffsetX(void) {
+
+    return tableAttrib.colorBarStartOffsetX;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+TableParametersDataManager::GetColorBarEndOffsetX(void) {
+
+    return tableAttrib.colorBarEndOffset;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+TableParametersDataManager::GetAlignScanLeadOffset(void) {
+
+    return tableAttrib.alignScanLeadOffset;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+TableParametersDataManager::GetAlignScanStartOffset(void) {
+
+    return tableAttrib.alignScanStartOffset;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+TableParametersDataManager::GetAlignScanEndOffset(void) {
+
+    return tableAttrib.alignScanEndOffset;
+}
+
+
+
+
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+//
+// Timing Parameters
+//
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+
+WORD
+TableParametersDataManager::GetPointToPointMoveSettleTime(void) {
+
+    return  timingParam.pointToPointMoveSettleTime;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+TableParametersDataManager::GetTargetAlignMoveSettleTime(void) {
+
+    return  timingParam.targetAlignMoveSettleTime;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
 TableParametersDataManager::GetReverseBacklashSettleTime(void) {
 
     return  timingParam.reverseBacklashSettleTime;
@@ -240,7 +352,7 @@ TableParametersDataManager::GetReverseBacklashSettleTime(void) {
 //
 //////////////////////////////////////////////////
 
-DWORD
+WORD
 TableParametersDataManager::GetForwardBacklashSettleTime(void) {
 
     return  timingParam.forwardBacklashSettleTime;
@@ -253,10 +365,10 @@ TableParametersDataManager::GetForwardBacklashSettleTime(void) {
 //
 //////////////////////////////////////////////////
 
-DWORD
-TableParametersDataManager::GetMaxLampOnTime(void) {
+WORD
+TableParametersDataManager::GetMaxTargetLampOnTime(void) {
 
-    return  timingParam.maxLampOnTime;
+    return  timingParam.maxTargetLampOnTime;
 }
 
 
@@ -266,7 +378,7 @@ TableParametersDataManager::GetMaxLampOnTime(void) {
 //
 //////////////////////////////////////////////////
 
-DWORD
+WORD
 TableParametersDataManager::GetMeasurementFlashRechargeTime(void) {
 
     return  timingParam.measurementFlashRechargeTime;
@@ -279,7 +391,7 @@ TableParametersDataManager::GetMeasurementFlashRechargeTime(void) {
 //
 //////////////////////////////////////////////////
 
-DWORD
+WORD
 TableParametersDataManager::GetAirOnHeadDownTime(void) {
 
     return  timingParam.airOnHeadDownTime;
@@ -292,7 +404,7 @@ TableParametersDataManager::GetAirOnHeadDownTime(void) {
 //
 //////////////////////////////////////////////////
 
-DWORD
+WORD
 TableParametersDataManager::GetAirOffHeadUpTime(void) {
 
     return  timingParam.airOffHeadUpTime;
@@ -305,7 +417,7 @@ TableParametersDataManager::GetAirOffHeadUpTime(void) {
 //
 //////////////////////////////////////////////////
 
-DWORD
+WORD
 TableParametersDataManager::GetHeadCommTimeOut(void) {
 
     return  timingParam.headCommTimeOut;
@@ -318,7 +430,7 @@ TableParametersDataManager::GetHeadCommTimeOut(void) {
 //
 //////////////////////////////////////////////////
 
-DWORD
+WORD
 TableParametersDataManager::GetMotorCommTimeOut(void) {
 
     return  timingParam.motorCommTimeOut;
@@ -331,7 +443,7 @@ TableParametersDataManager::GetMotorCommTimeOut(void) {
 //
 //////////////////////////////////////////////////
 
-DWORD
+WORD
 TableParametersDataManager::GetPciCommTimeOut(void) {
 
     return  timingParam.pciCommTimeOut;
@@ -344,12 +456,11 @@ TableParametersDataManager::GetPciCommTimeOut(void) {
 //
 //////////////////////////////////////////////////
 
-DWORD
+WORD
 TableParametersDataManager::GetMeasurementCommTimeOut(void) {
 
     return  timingParam.measurementCommTimeOut;
 }
-
 
 
 

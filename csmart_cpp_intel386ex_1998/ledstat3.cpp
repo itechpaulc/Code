@@ -27,6 +27,7 @@
 
 
 
+
 #include "80386ex.h"
 
 #include "ledstat.h"
@@ -55,7 +56,7 @@ MotorCommLedStatusMachine::LedOn(void)
 {
     p3Status = GetIO3Latch();           // Read Port 3
 
-    p3Status |= MTRC_STATUS_LED_PORT;   // Set LED Port
+    //p3Status |= MTRC_STATUS_LED_PORT;   // Set LED Port
 
     SetIO3Latch(p3Status);              // Write to Port
 }
@@ -71,7 +72,7 @@ MotorCommLedStatusMachine::LedOff(void)
 {
     p3Status = GetIO3Latch();           // Read Port 3
 
-    p3Status &= ~MTRC_STATUS_LED_PORT;  // Clear LED Port
+    //p3Status &= ~MTRC_STATUS_LED_PORT;  // Clear LED Port
 
     SetIO3Latch(p3Status);              // Write to Port
 }
@@ -130,7 +131,7 @@ BYTE    MotorCommLedStatusMachine::p3Status;
 //
 //////////////////////////////////////////////////
 
-MotorCommLedStatusMachine::MotorCommLedStatusMachine(BYTE sMsysID)
+MotorCommLedStatusMachine::MotorCommLedStatusMachine(STATE_MACHINE_ID sMsysID)
     :StateMachine(sMsysID)
 {
     LedOff();
@@ -176,4 +177,7 @@ MotorCommLedStatusMachine::MTRC_SLM_h2(void)
 
     return  MTRC_SLM_ON;
 }
+
+
+
 

@@ -31,7 +31,71 @@
 #include "80386ex.h"
 
 #include "mtrcomm.h"
+
 #include "meascomm.h"
+
+#include "hccomm.h"
+
+
+#include <string.h>
+
+#pragma _builtin_(memcpy)
+
+
+
+//////////////////////////////////////////////////
+//
+// Local variables of the Kernel
+//
+//////////////////////////////////////////////////
+
+
+#define     TRANSMIT_BUFFER_EMPTY       0x01
+#define     RECEIVE_BUFFER_FULL         0x02
+
+
+static  BYTE    probeHeadRxBuffer[MAX_PACKET_LENGTH];
+static  BYTE    probeHeadTxBuffer[MAX_PACKET_LENGTH];
+
+static  BYTE    iir0, commStatus,
+
+                rxByteCount=0,  rxDataRcvd=0x00,    rxLength,
+                txByteCount=0,  txLength;
+
+
+static  SCAN_MEASUREMENT_MODE   asynchronousCommMode = NORMAL_SCAN_MEASUREMENT;
+static  SCAN_MEASUREMENT_MODE   motorchipSetCommMode = NORMAL_SCAN_MEASUREMENT;
+
+
+//////////////////////////////////////////////////
+//
+// IACM - machine and
+// IMCSC - machine
+//
+//////////////////////////////////////////////////
+
+#define MEASURE_COMMAND_LENGTH      0x03
+
+#define MEASURE_COMMAND_CHECKSUM    (PHC_MeasureWithFlash + MEASURE_COMMAND_LENGTH)
+
+BYTE    MEASURE_COMMAND[] = {
+
+    MEASURE_COMMAND_LENGTH,
+    PHC_MeasureWithFlash,
+    MEASURE_COMMAND_CHECKSUM
+};
+
+
+void    SetMeasurementMode(SCAN_MEASUREMENT_MODE smM) {
+
+    asynchronousCommMode = smM;
+    motorchipSetCommMode = smM;
+
+    // Set up Tx Buffer for the probe head
+    // "Measure" command only
+
+    SetProbHeadCommTxBuffer(MEASURE_COMMAND, MEASURE_COMMAND_LENGTH);
+}
 
 
 //////////////////////////////////////////////////
@@ -43,9 +107,11 @@
 //////////////////////////////////////////////////
 //////////////////////////////////////////////////
 
-
 void    CheckMotorCsIrq(void);
 void    UpdateSystemTimers(void);
+void    HandlePciBusIrq(void);
+
+
 
 //////////////////////////////////////////////////
 //
@@ -53,7 +119,7 @@ void    UpdateSystemTimers(void);
 //////////////////////////////////////////////////
 
 
-StateMachine::StateMachine(BYTE smId)
+StateMachine::StateMachine(STATE_MACHINE_ID smId)
     : currState(NULL_STATE),
       smID(smId),
       responseEntry(0)
@@ -91,7 +157,7 @@ StateMachine::SetCurrState(BYTE cState) {
 //
 //////////////////////////////////////////////////
 
-BYTE
+STATE_MACHINE_ID
 StateMachine::GetStateMachineId(void) {
 
     return smID;
@@ -160,6 +226,293 @@ StateMachine::doUnhandledMsg(void)
 }
 
 
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+//
+// PCI Message Structures, Constructors
+// Destructors and  Member access
+//
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+
+//////////////////////////////////////////////////
+//
+// constructor used to extract
+// data from mailbox memory
+//
+//////////////////////////////////////////////////
+
+MAILBOX_MESSAGE::MAILBOX_MESSAGE(void) {
+
+    Clear();
+}
+
+MAILBOX_MESSAGE::MAILBOX_MESSAGE(DWORD mboxData) {
+
+    commandAndExtension = LOWORD(mboxData);
+
+    param1     = (BYTE)(HIWORD(mboxData));
+    param2     = (BYTE)(HIWORD(mboxData) >> 8);
+}
+
+
+MAILBOX_MESSAGE::~MAILBOX_MESSAGE(void) { }
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void
+MAILBOX_MESSAGE::Clear(void) {
+
+    commandAndExtension = 0x0000;
+    param1 = param2     = 0x00;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void
+MAILBOX_MESSAGE::SetParam1(BYTE p1) {
+
+    param1 = p1;
+}
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void
+MAILBOX_MESSAGE::SetParam2(BYTE p2) {
+
+    param2 = p2;
+}
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+BYTE
+MAILBOX_MESSAGE::GetParam1(void) {
+
+    return  param1;
+}
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+BYTE
+MAILBOX_MESSAGE::GetParam2(void) {
+
+    return  param2;
+}
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void
+MAILBOX_MESSAGE::SetCommand(WORD cmd) {
+
+    commandAndExtension &= ~PCI_MESSAGE_COMMAND_MASK; // clear
+
+    commandAndExtension |= cmd;
+}
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+MAILBOX_MESSAGE::GetCommand(void) {
+
+    return (commandAndExtension & PCI_MESSAGE_COMMAND_MASK);
+}
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void
+MAILBOX_MESSAGE::SetExtension(WORD ext) {
+
+    commandAndExtension &= ~PCI_MESSAGE_EXT_MASK; // clear
+
+    commandAndExtension |= ((ext << 12) & PCI_MESSAGE_EXT_MASK);
+}
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+MAILBOX_MESSAGE::GetExtension(void) {
+
+    return ((commandAndExtension & PCI_MESSAGE_EXT_MASK) >> 12);
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void
+MAILBOX_MESSAGE::SetCommandAndExtension(WORD cmdExt) {
+
+    commandAndExtension = cmdExt;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+MAILBOX_MESSAGE::GetCommandAndExtension(void) {
+
+    return commandAndExtension;
+}
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+MAILBOX_MESSAGE::GetParam1and2(void) {
+
+    return ((param2 << 8) | param1);
+}
+
+
+
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+//
+// PCI Message Header
+//
+//////////////////////////////////////////////////
+//////////////////////////////////////////////////
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+PCI_MESSAGE_HEADER::GetCommandAndExtension(void) {
+
+    return mboxMessageCopy.GetCommandAndExtension();
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+PCI_MESSAGE_HEADER::GetParam1and2(void) {
+
+    return mboxMessageCopy.GetParam1and2();
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+PCI_MESSAGE_HEADER::GetDataLength(void) {
+
+    return length;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void
+PCI_MESSAGE_HEADER::SetMailboxCopy(MAILBOX_MESSAGE mboxCopy) {
+
+    mboxMessageCopy = mboxCopy;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void
+PCI_MESSAGE_HEADER::SetDataLength(WORD dataLength) {
+
+    length = dataLength;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD
+PCI_MESSAGE_HEADER::GetCellsUsed(void) {
+
+        if(length == 0) {
+
+            // Only one cell used, param 1 and param 2
+            // may contain data
+
+            return 1;
+        }
+
+
+        // param 1 is Start Cell and param 2 is End Cell
+        // by protocol definition
+
+    return  (mboxMessageCopy.GetParam2() -
+             mboxMessageCopy.GetParam1());
+}
+
+
+
 
 //////////////////////////////////////////////////
 //////////////////////////////////////////////////
@@ -192,16 +545,25 @@ static  SYSTEM_EVENT    currEvent;
 
 //////////////////////////////////////////////////
 //
-// Interrupt Flags - Private
+// Interrupt Flags - Kernel, Private
 //
 //////////////////////////////////////////////////
 
-BOOL    TIMER_0_IRQ_SET = FALSE,
+BOOL    TIMER_0_IRQ_SET     = FALSE,
+        MOTOR_CS_IRQ_SET    = FALSE,
+        PCI_BUS_IRQ_SET     = FALSE,
+        PACKET_SENT         = FALSE,
+        PACKET_RECEIVED     = FALSE,
 
-        MOTOR_CS_IRQ_SET = FALSE;
+        MOTOR_CS_IRQ_X_MOTION_COMPLETE              = FALSE,
+        MOTOR_CS_IRQ_X_NEGATIVE_LIMIT_SWITCH        = FALSE,
+        MOTOR_CS_IRQ_X_UPDATE_BREAK_POINT_REACHED   = FALSE,
 
+        MOTOR_CS_IRQ_Y_MOTION_COMPLETE              = FALSE,
+        MOTOR_CS_IRQ_Y_NEGATIVE_LIMIT_SWITCH        = FALSE,
+        MOTOR_CS_IRQ_Y_UPDATE_BREAK_POINT_REACHED   = FALSE,
 
-
+        MEASUREMENT_BLOCK_RECEIVED = FALSE;
 
 
 //////////////////////////////////////////////////
@@ -284,7 +646,19 @@ void    AddStateMachineToKernel(StateMachine *stateMPtr) {
 //
 //////////////////////////////////////////////////
 
-BYTE    GetStateMachineState(BYTE  smId) {
+StateMachine *  GetStateMachine(BYTE smId) {
+
+    return sysSMEntries[smId];
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+WORD    GetStateMachineState(BYTE  smId) {
 
     if(sysSMEntries[smId] != 0)
         return  sysSMEntries[smId]->GetCurrState();
@@ -382,25 +756,43 @@ void    RunKernel(void)
         // Check for interrupt flags
         //
 
-        currStateMachine = sysSMEntries[KernelID];
-
         if(TIMER_0_IRQ_SET)
         {
             TIMER_0_IRQ_SET = FALSE;
-
             UpdateSystemTimers();
         }
 
         if(MOTOR_CS_IRQ_SET)
         {
             MOTOR_CS_IRQ_SET = FALSE;
-
             CheckMotorCsIrq();
         }
 
+        if(PACKET_SENT)
+        {
+            PACKET_SENT = FALSE;
+            SendHiPrKernelMsg(HeadCommandCommID, PacketSent);
+        }
+
+        if(PACKET_RECEIVED)
+        {
+            PACKET_RECEIVED = FALSE;
+            SendHiPrKernelMsg(HeadCommandCommID, PacketReceived);
+        }
+
+        if(PCI_BUS_IRQ_SET)
+        {
+            PCI_BUS_IRQ_SET = FALSE;
+            HandlePciBusIrq();
+        }
+
+        if(MEASUREMENT_BLOCK_RECEIVED)
+        {
+            MEASUREMENT_BLOCK_RECEIVED = FALSE;
+            SendHiPrKernelMsg(MeasurementCommMachineID, MeasurementBlockReceived);
+        }
+
     }
-
-
 }
 
 
@@ -411,10 +803,10 @@ void    RunKernel(void)
 //
 //////////////////////////////////////////////////
 
-void    SendHiPrMsg(BYTE smId, WORD mId) {
+void    SendHiPrMsg(STATE_MACHINE_ID smId, SYSTEM_MESSAGE_ID mId) {
 
     lastHPMsg->smDestId = smId;
-    lastHPMsg->senderId = currStateMachine->GetStateMachineId();
+    lastHPMsg->senderId = currEvent.smDestId;
     lastHPMsg->msgId = mId;
 
     if(lastHPMsg == LastHpMsgSlot)
@@ -430,10 +822,10 @@ void    SendHiPrMsg(BYTE smId, WORD mId) {
 //
 //////////////////////////////////////////////////
 
-void    SendLowPrMsg(BYTE smId, WORD mId) {
+void    SendLowPrMsg(STATE_MACHINE_ID smId, SYSTEM_MESSAGE_ID mId) {
 
     lastLPMsg->smDestId = smId;
-    lastLPMsg->senderId = currStateMachine->GetStateMachineId();
+    lastLPMsg->senderId = currEvent.smDestId;
     lastLPMsg->msgId = mId;
 
     if(lastLPMsg == LastLpMsgSlot)
@@ -450,10 +842,10 @@ void    SendLowPrMsg(BYTE smId, WORD mId) {
 //
 //////////////////////////////////////////////////
 
-void    SendHiPrMsg(BYTE smId, WORD mId, DWORD d1, DWORD d2) {
+void    SendHiPrMsg(STATE_MACHINE_ID smId, SYSTEM_MESSAGE_ID mId, DWORD d1, DWORD d2) {
 
     lastHPMsg->smDestId = smId;
-    lastHPMsg->senderId = currStateMachine->GetStateMachineId();
+    lastHPMsg->senderId = currEvent.smDestId;
     lastHPMsg->msgId = mId;
     lastHPMsg->msgData1 = d1;
     lastHPMsg->msgData2 = d2;
@@ -471,10 +863,10 @@ void    SendHiPrMsg(BYTE smId, WORD mId, DWORD d1, DWORD d2) {
 //
 //////////////////////////////////////////////////
 
-void    SendLowPrMsg(BYTE smId, WORD mId, DWORD d1, DWORD d2) {
+void    SendLowPrMsg(STATE_MACHINE_ID smId, SYSTEM_MESSAGE_ID mId, DWORD d1, DWORD d2) {
 
     lastLPMsg->smDestId = smId;
-    lastLPMsg->senderId = currStateMachine->GetStateMachineId();
+    lastLPMsg->senderId = currEvent.smDestId;
     lastLPMsg->msgId = mId;
     lastLPMsg->msgData1 = d1;
     lastLPMsg->msgData2 = d2;
@@ -486,35 +878,22 @@ void    SendLowPrMsg(BYTE smId, WORD mId, DWORD d1, DWORD d2) {
 }
 
 
-
 //////////////////////////////////////////////////
 //
 //
 //
 //////////////////////////////////////////////////
 
-void    StartTimer(WORD tmrCount)
-{
-    systemTimers[currStateMachine->GetStateMachineId()].timerCount
-        = tmrCount;
+void    SendHiPrKernelMsg(STATE_MACHINE_ID smId, SYSTEM_MESSAGE_ID mId) {
 
-    systemTimers[currStateMachine->GetStateMachineId()].hiPriority
-        = FALSE;
-}
+    lastHPMsg->smDestId = smId;
+    lastHPMsg->senderId = KernelID;
+    lastHPMsg->msgId = mId;
 
-//////////////////////////////////////////////////
-//
-//
-//
-//////////////////////////////////////////////////
-
-void    StartHiPriorityTimer(WORD tmrCount)
-{
-    systemTimers[currStateMachine->GetStateMachineId()].timerCount
-        = tmrCount;
-
-    systemTimers[currStateMachine->GetStateMachineId()].hiPriority
-        = TRUE;
+    if(lastHPMsg == LastHpMsgSlot)
+        lastHPMsg = highPriorityQueue;  // Point to head
+    else
+        lastHPMsg++;                    // Point to next
 }
 
 
@@ -524,8 +903,74 @@ void    StartHiPriorityTimer(WORD tmrCount)
 //
 //////////////////////////////////////////////////
 
-void    CancelTimer(void)
-{
+void    SendLowPrKernelMsg(STATE_MACHINE_ID smId, SYSTEM_MESSAGE_ID mId) {
+
+    lastLPMsg->smDestId = smId;
+    lastLPMsg->senderId = KernelID;
+    lastLPMsg->msgId = mId;
+
+    if(lastLPMsg == LastLpMsgSlot)
+        lastLPMsg = lowPriorityQueue;
+    else
+        lastLPMsg++;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void    StartTimer(WORD tmrCount) {
+
+    if(tmrCount == 0)
+    {
+        SendLowPrKernelMsg
+            (currStateMachine->GetStateMachineId(), TimeOut);
+    }
+    else
+    {
+        systemTimers[currStateMachine->GetStateMachineId()].timerCount
+            = tmrCount;
+
+        systemTimers[currStateMachine->GetStateMachineId()].hiPriority
+            = FALSE;
+    }
+}
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void    StartHiPriorityTimer(WORD tmrCount) {
+
+    if(tmrCount == 0)
+    {
+        SendHiPrKernelMsg
+            (currStateMachine->GetStateMachineId(), TimeOut);
+    }
+    else
+    {
+        systemTimers[currStateMachine->GetStateMachineId()].timerCount
+            = tmrCount;
+
+        systemTimers[currStateMachine->GetStateMachineId()].hiPriority
+            = TRUE;
+    }
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void    CancelTimer(void) {
+
     // Expire the timer of the current machine
 
     systemTimers[currStateMachine->GetStateMachineId()].timerCount
@@ -580,9 +1025,9 @@ static  void    UpdateSystemTimers(void)
             if(systemTimers[currSmTimer].timerCount == 0)
             {
                 if(systemTimers[currSmTimer].hiPriority == TRUE)
-                    SendHiPrMsg(currSmTimer, TimeOut);
+                    SendHiPrKernelMsg(STATE_MACHINE_ID(currSmTimer), TimeOut);
                 else
-                    SendLowPrMsg(currSmTimer, TimeOut);
+                    SendLowPrKernelMsg(STATE_MACHINE_ID(currSmTimer), TimeOut);
             }
         }
     }
@@ -597,41 +1042,118 @@ static  void    UpdateSystemTimers(void)
 
 static  void    CheckMotorCsIrq(void)
 {
-    WORD    csStatus;
 
-    // Set Axis to the one interrupting
+        //////////////////////////////////////////////////
+        // X AXIS
+        //////////////////////////////////////////////////
 
-    SendMcsCommand(SET_CURR_AXIS_INTERRUPT);
-    SendMcsCommand(GET_STATUS);
+        if(MOTOR_CS_IRQ_X_MOTION_COMPLETE) {
 
-    csStatus = ReadMcs();
+            MOTOR_CS_IRQ_X_MOTION_COMPLETE = FALSE;
+            SendHiPrKernelMsg(MotorCommID, XAxisOnTarget);
+        }
 
-    if(csStatus & X_AXIS_BIT) // X Axis Interrupt
-    {
-        // Check for all the possilbe events
-        // inform the appropriate machines about the event
+        if(MOTOR_CS_IRQ_X_NEGATIVE_LIMIT_SWITCH) {
 
-        if(csStatus & MOTION_COMPLETE)
-            SendHiPrMsg(MotorCommID, XAxisOnTarget);
+            MOTOR_CS_IRQ_X_NEGATIVE_LIMIT_SWITCH = FALSE;
+            SendHiPrKernelMsg(MotorCommID, XLimitFound);
+        }
 
-        if(csStatus & NEGATIVE_LIMIT_SWITCH)
-            SendHiPrMsg(MotorCommID, XLimitFound);
+        if(MOTOR_CS_IRQ_X_UPDATE_BREAK_POINT_REACHED) {
 
-        if(csStatus & UPDATE_BREAK_POINT_REACHED)
-            SendHiPrMsg(HeadMachinesManagerID, XBreakPointReached);
-    }
-    else // Y AXIS Interrupt
-    {
-        if(csStatus & MOTION_COMPLETE)
-            SendHiPrMsg(MotorCommID, YAxisOnTarget);
+            MOTOR_CS_IRQ_X_UPDATE_BREAK_POINT_REACHED = FALSE;
+            SendHiPrKernelMsg(HeadMachinesManagerID, XBreakPointReached);
+        }
 
-        if(csStatus & NEGATIVE_LIMIT_SWITCH)
-            SendHiPrMsg(MotorCommID, YLimitFound);
 
-        if(csStatus & UPDATE_BREAK_POINT_REACHED)
-            SendHiPrMsg(HeadMachinesManagerID, YBreakPointReached);
-    }
+        //////////////////////////////////////////////////
+        // Y AXIS
+        //////////////////////////////////////////////////
+
+        if(MOTOR_CS_IRQ_Y_MOTION_COMPLETE) {
+
+            MOTOR_CS_IRQ_Y_MOTION_COMPLETE = FALSE;
+            SendHiPrKernelMsg(MotorCommID, YAxisOnTarget);
+        }
+
+        if(MOTOR_CS_IRQ_Y_NEGATIVE_LIMIT_SWITCH) {
+
+            MOTOR_CS_IRQ_Y_NEGATIVE_LIMIT_SWITCH = FALSE;
+            SendHiPrKernelMsg(MotorCommID, YLimitFound);
+        }
+
+        if(MOTOR_CS_IRQ_Y_UPDATE_BREAK_POINT_REACHED) {
+
+            MOTOR_CS_IRQ_Y_UPDATE_BREAK_POINT_REACHED = FALSE;
+            SendHiPrKernelMsg(HeadMachinesManagerID, YBreakPointReached);
+        }
 }
+
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void    HandlePciBusIrq(void) {
+
+    // Inform PCI RX Comm about the event
+
+    SendHiPrKernelMsg(PciRxCommID, PciMessageReceived);
+}
+
+
+//////////////////////////////////////////////////
+//
+// Kernel's Mailbox Access Functions
+//
+//////////////////////////////////////////////////
+
+MAILBOX_MESSAGE     ReadMailboxMessage(void) {
+
+    // Extract the mailbox data from the mailbox
+    // memory, store in a DWORD
+
+    DWORD   mboxData = (*((WORD *) PCI_MAIL_BOX_IN_ADDRESS_HI_WORD) << 16);
+
+            mboxData &= *((WORD *) PCI_MAIL_BOX_IN_ADDRESS_LO_WORD);
+
+        // Create a message intialized with the DWORD
+
+        MAILBOX_MESSAGE mboxMsg(mboxData);
+
+    return mboxMsg;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void
+WriteMailboxMessage(MAILBOX_MESSAGE & mboxMsg) {
+
+    WORD    * ptrCmdExtAddr = (WORD  *)PCI_MAIL_BOX_IN_ADDRESS_HI_WORD;
+    WORD    * ptrPar1Par2   = (WORD  *)PCI_MAIL_BOX_IN_ADDRESS_LO_WORD;
+
+        // combine p1 and p2 to form a word
+
+        WORD p1andp2 = ((mboxMsg.GetParam1() << 8) | mboxMsg.GetParam2());
+
+        // write to the mbox hi word address
+
+        *ptrPar1Par2  =  p1andp2;
+
+        // write to the mbox hi word address
+
+        *ptrCmdExtAddr = mboxMsg.GetCommandAndExtension();
+}
+
+
 
 
 //////////////////////////////////////////////////
@@ -644,14 +1166,6 @@ static  void    CheckMotorCsIrq(void)
 
 void    InitPerhiperals(void)
 {
-    //////////////////////////////////////////////////
-    //
-    //  Initialize Chip Select Units
-    //
-    //////////////////////////////////////////////////
-
-    Init_CSU();
-
 
     //////////////////////////////////////////////////
     //
@@ -664,26 +1178,11 @@ void    InitPerhiperals(void)
 
     //////////////////////////////////////////////////
     //
-    //  Initialize RCU (Refresh Control unit)
-    //
-    //////////////////////////////////////////////////
-
-
-
-    //////////////////////////////////////////////////
-    //
-    //  Initialize IO
-    //
-    //////////////////////////////////////////////////
-
-    InitIO1(PORT_1_LATCH, PORT_1_DIR, PORT_1_CFG);
-    InitIO2(PORT_2_LATCH, PORT_2_DIR, PORT_2_CFG);
-    InitIO3(PORT_3_LATCH, PORT_3_DIR, PORT_3_CFG);
-
-
-    //////////////////////////////////////////////////
-    //
     //  Initialize Interrupts
+    //
+    //  Note:   Dont Care about configuration settings of
+    //          MASTER_EXT_PINS, SLAVE_EXT_PINS
+    //          at this point (both are = 0x00)
     //
     //////////////////////////////////////////////////
 
@@ -718,12 +1217,28 @@ void    InitPerhiperals(void)
     //
     //////////////////////////////////////////////////
 
+    InitSSIO();
+
 
     //////////////////////////////////////////////////
     //
     //  Initialize Async Serial
     //
     //////////////////////////////////////////////////
+
+    InitSIO(SIO_0, SIO_8N1, PROBE_HEAD_COMM_BAUD_RATE, BCLKIN);
+
+
+
+    //////////////////////////////////////////////////
+    //
+    // Finalize IO Configuration Settings
+    //
+    //////////////////////////////////////////////////
+
+    InitIO1(PORT_1_LATCH, PORT_1_DIR, PORT_1_CFG);
+    InitIO2(PORT_2_LATCH, PORT_2_DIR, PORT_2_CFG);
+    InitIO3(PORT_3_LATCH, PORT_3_DIR, PORT_3_CFG);
 
 
 
@@ -790,7 +1305,7 @@ extern "C" {
 void
 irq_0_handler(void)
 {
-    TIMER_0_IRQ_SET = TRUE;
+        TIMER_0_IRQ_SET = TRUE;
 
     NonSpecificEOI();
 }
@@ -807,7 +1322,52 @@ irq_0_handler(void)
 void
 irq_1_handler(void)
 {
-    MOTOR_CS_IRQ_SET = TRUE;
+    WORD    mcsStatus;
+
+    // Set Axis to the one interrupting
+
+    SendMcsCommand(SET_CURR_AXIS_INTERRUPT);
+    SendMcsCommand(GET_STATUS);
+
+    mcsStatus = ReadMcs();
+
+        if(mcsStatus & X_AXIS_BIT) // X Axis Interrupt
+        {
+            // Check for all the possilbe events
+            // inform the appropriate machines about the event
+
+            if(mcsStatus & MOTION_COMPLETE)
+                MOTOR_CS_IRQ_X_MOTION_COMPLETE = TRUE;
+
+            if(mcsStatus & NEGATIVE_LIMIT_SWITCH)
+                MOTOR_CS_IRQ_X_NEGATIVE_LIMIT_SWITCH = TRUE;
+
+            if(mcsStatus & UPDATE_BREAK_POINT_REACHED)
+            {
+                if(motorchipSetCommMode == CONTINOUS_SCAN_MEASUREMENT)
+                {
+                    // Immediately send the measurement command just by
+                    // Enabling the probe head comm
+
+                    EnableProbeHeadCommunication();
+                }
+
+                MOTOR_CS_IRQ_X_UPDATE_BREAK_POINT_REACHED = TRUE;
+            }
+        }
+        else // Y AXIS Interrupt
+        {
+            if(mcsStatus & MOTION_COMPLETE)
+                MOTOR_CS_IRQ_Y_MOTION_COMPLETE = TRUE;
+
+            if(mcsStatus & NEGATIVE_LIMIT_SWITCH)
+                MOTOR_CS_IRQ_Y_NEGATIVE_LIMIT_SWITCH = TRUE;
+
+            if(mcsStatus & UPDATE_BREAK_POINT_REACHED)
+                MOTOR_CS_IRQ_Y_UPDATE_BREAK_POINT_REACHED = TRUE;
+        }
+
+        MOTOR_CS_IRQ_SET = TRUE;
 
     NonSpecificEOI();
 }
@@ -847,6 +1407,7 @@ irq_3_handler(void)
     ++irqErrorCount;
 }
 
+
 //////////////////////////////////////////////////
 //
 //  Asynchronous Serial Communication
@@ -858,12 +1419,51 @@ irq_3_handler(void)
 
 void    SerialWriteChar(BYTE data)
 {
-    // Make sure TX Buff is empty
-
-    while(!(_GetEXRegByte(LSR0) & SIO_TX_BUF_EMPTY))
-        ;
-
     _SetEXRegByte(TBR0, data);
+}
+
+
+//////////////////////////////////////////////////
+//
+// Kernel's Probe Head Communication
+// Access Functions
+//
+//////////////////////////////////////////////////
+
+void    EnableProbeHeadCommunication(void) {
+
+    // Enable TBE and RBF Interrupts
+
+    _SetEXRegByte(IER0, (SIO_INTR_TBE | SIO_INTR_RBF));
+
+    txByteCount = 0; // reset counters, index
+    rxByteCount = 0;
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void    DisableProbeHeadCommunication(void) {
+
+    // Disable TBE and RBF Interrupts
+
+    _SetEXRegByte(IER0, 0x00);
+}
+
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void    SetProbHeadCommTxBuffer(BYTE *txBuff, BYTE txLength) {
+
+    memcpy(probeHeadTxBuffer, txBuff, txLength);
 }
 
 //////////////////////////////////////////////////
@@ -872,20 +1472,17 @@ void    SerialWriteChar(BYTE data)
 //
 //////////////////////////////////////////////////
 
+BYTE    * GetProbHeadCommRxBuffer(void) {
 
-#define     TRANSMIT_BUFFER_EMPTY       0x01
-#define     RECEIVE_BUFFER_FULL         0x02
+    return probeHeadRxBuffer;
+}
 
 
-static  BYTE    rxBuffer[MAX_HEAD_COMM_PACKET_LEN];
-static  BYTE    txBuffer[MAX_HEAD_COMM_PACKET_LEN];
-
-static  BYTE    iir0, commStatus,
-
-                rxByteCount=0, rxDataRcvd=0x00, rxLength,
-
-                txByteCount=0;
-
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
 
 #pragma interrupt(irq_4_handler)
 void
@@ -896,31 +1493,27 @@ irq_4_handler(void)
         commStatus = ((iir0 & 0x06) >> 1);
 
         //////////////////////////////////////////////////
-        //
-        //
-        //
+        // Check if BYTE was received
         //////////////////////////////////////////////////
 
         if(commStatus == RECEIVE_BUFFER_FULL)
         {
             rxDataRcvd = _GetEXRegByte(RBR0);
 
-            if(rxByteCount >= MAX_HEAD_COMM_PACKET_LEN)
-            {
-                // Out of sync
+            // Store data byte
 
-            }
-            else
-            {
-                rxBuffer[rxByteCount] = rxDataRcvd;
-            }
+            probeHeadRxBuffer[rxByteCount] = rxDataRcvd;
 
-            if(rxByteCount == 0) // Packet Header
+            if(rxByteCount == 0)
             {
-                rxLength = rxBuffer[rxByteCount];
+                // Packet Header, the First Byte
+                // is the length byte
 
-                if(rxLength > MAX_HEAD_COMM_PACKET_LEN)
+                rxLength = probeHeadRxBuffer[rxByteCount];
+
+                if(rxLength > MAX_PACKET_LENGTH)
                 {
+                    // Debug
                     // Invalid rxLength
 
                 }
@@ -929,8 +1522,20 @@ irq_4_handler(void)
             {
                 if(rxLength == (rxByteCount+1))
                 {
-                    // Packet fully received
+                    if(asynchronousCommMode == CONTINOUS_SCAN_MEASUREMENT)
+                    {
+                        // Disable the probe head communication that was automatically
+                        // enalbled by the motor IRQ while in this mode
 
+                        DisableProbeHeadCommunication();
+                    }
+                    else
+                    {
+                        // NORMAL_SCAN_MEASUREMENT
+                        // Packet fully received, tell Kernel
+
+                        PACKET_RECEIVED = TRUE;
+                    }
                 }
             }
 
@@ -940,25 +1545,42 @@ irq_4_handler(void)
         else
 
         //////////////////////////////////////////////////
-        //
-        //
-        //
+        // Check if BYTE was transmitted
         //////////////////////////////////////////////////
 
         if(commStatus == TRANSMIT_BUFFER_EMPTY)
         {
             if(txByteCount == 0)
             {
-                // Uart Just Enabled
+                // UART was Just Enabled, the First Byte
+                // is the length byte
 
-                SerialWriteChar(txBuffer[txByteCount]);
+                txLength = probeHeadTxBuffer[txByteCount];
+
+                SerialWriteChar(txLength);
 
                 txByteCount++;
             }
             else
             {
+                if(txByteCount < txLength)
+                {
+                    // Transmission has started, Transmit the
+                    // rest of the packet
 
+                    SerialWriteChar(probeHeadTxBuffer[txByteCount]);
 
+                    txByteCount++;
+                }
+                else
+                {
+                    if(asynchronousCommMode == NORMAL_SCAN_MEASUREMENT)
+                    {
+                        // Packet Transmitted, tell Kernel
+
+                        PACKET_SENT = TRUE;
+                    }
+                }
             }
         }
 
@@ -978,6 +1600,7 @@ irq_4_handler(void)
 void
 irq_5_handler(void)
 {
+        PCI_BUS_IRQ_SET = TRUE;
 
     NonSpecificEOI();
 }
@@ -1117,6 +1740,40 @@ irq_11_handler(void)
 
 //////////////////////////////////////////////////
 //
+// Kernel's Probe Head
+// Meaurement Data Communication Access Functions
+//
+//////////////////////////////////////////////////
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void    EnableMeasurementDataReception(void) {
+
+    // Call Driver Level to enable DMA
+
+    EnableDMAHWRequests(DMA_Channel1);
+}
+
+//////////////////////////////////////////////////
+//
+//
+//
+//////////////////////////////////////////////////
+
+void    DisableMeasurementDataReception(void) {
+
+    // Call Driver Level to disable DMA
+
+    DisableDMAHWRequests(DMA_Channel1);
+}
+
+
+//////////////////////////////////////////////////
+//
 //  DMA
 //
 //  Generates an interrupt when the full
@@ -1126,10 +1783,7 @@ irq_11_handler(void)
 //
 //////////////////////////////////////////////////
 
-#define     DMA0_TRANSFER_COMPLETE      0x10
 #define     DMA1_TRANSFER_COMPLETE      0x20
-#define     DMA0_CHAINING_INTERRUPT     0x01
-#define     DMA1_CHAINING_INTERRUPT     0x02
 
 #pragma interrupt(irq_12_handler)
 void
@@ -1137,24 +1791,9 @@ irq_12_handler(void)
 {
     WORD    regDMAIS;
 
-        // Get interrupt status register
+        // Get Interrupt Status Register
 
         regDMAIS = _GetEXRegByte(DMAIS);
-
-        if(regDMAIS & DMA0_TRANSFER_COMPLETE)
-        {
-            _SetEXRegByte(DMACLRTC, 0x00);
-        }
-
-        if(regDMAIS & DMA1_TRANSFER_COMPLETE)
-        {
-            _SetEXRegByte(DMACLRTC, 0x00);
-        }
-
-        if(regDMAIS & DMA0_CHAINING_INTERRUPT)
-        {
-
-        }
 
         //////////////////////////////////////////////////
         //
@@ -1163,9 +1802,13 @@ irq_12_handler(void)
         //
         //////////////////////////////////////////////////
 
-        if(regDMAIS & DMA1_CHAINING_INTERRUPT)
+        if(regDMAIS & DMA1_TRANSFER_COMPLETE)
         {
+            // Clear the Transfer Complete Signal
 
+            _SetEXRegByte(DMACLRTC, 0x00);
+
+            MEASUREMENT_BLOCK_RECEIVED = TRUE;
         }
 
     NonSpecificEOI();
