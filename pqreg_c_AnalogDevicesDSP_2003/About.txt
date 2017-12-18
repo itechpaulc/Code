@@ -1,0 +1,8 @@
+Color Quick intelligent camera from Vision Components 
+Written in C, Analog Devices as Cross compliler
+For the Analog Devices DSP microcontroller
+Date 2003
+
+Legacy code for demonstartion purposes only.
+Support files such as headers/linkers/library files etc., are not included.
+Compilers, assemblers may no longer be available.
