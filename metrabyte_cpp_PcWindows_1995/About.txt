@@ -1,0 +1,8 @@
+Project Windows Test Application for Metrabyte Automation System
+Written in C++ (Borland/MS)
+For the Automation PC as Host, using Windows application to drive the test
+Date 1995
+
+Legacy code for demonstartion purposes only.
+Support files such as headers/linkers/library files etc., are not included.
+Compilers, assemblers may no longer be available.
