@@ -1,0 +1,8 @@
+Project PCU100 Embedded Motor Controller Board
+Written in Motorola ASM and C
+For the HC6805
+Date 1997
+
+Legacy code for demonstartion purposes only.
+Support files such as headers/linkers/library files etc., are not included.
+Compilers, assemblers may no longer be available.
