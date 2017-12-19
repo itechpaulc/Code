@@ -1,0 +1,8 @@
+Project Shock Data logger device 
+Written in C with Free RTOS, TI MSP420 as compliler
+For the TI MSP430 Embedded microcontroller
+Date 2014
+
+Legacy code for demonstartion purposes only.
+Support files such as headers/linkers/library files etc., are not included.
+Compilers, assemblers may no longer be available.
